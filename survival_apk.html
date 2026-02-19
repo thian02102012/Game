@@ -875,44 +875,51 @@ function initGame(){
     return {mx:mx/len, my:my/len};
   }
 
-  // --- Skill casting: tap/hotkey cast instantly with auto target ---
-  function findBestEnemyCluster(range){
-    let best = null, bestScore = -1;
+  // --- Skill casting: tactical effects system ---
+  function getBestTarget(){
+    if (!enemies.length) return null;
+    let best = null, bestScore = -Infinity;
     for (const e of enemies){
-      if (Math.hypot(e.x-player.x,e.y-player.y) > range) continue;
-      let score = 0;
+      let nearby = 0;
       for (const n of enemies){
-        if (dist2(e.x,e.y,n.x,n.y) < 150*150) score += 1;
+        if (dist2(e.x,e.y,n.x,n.y) <= 180*180) nearby += 1;
       }
-      if (score > bestScore){ bestScore = score; best = e; }
-    }
-    return best;
-  }
-  function findNearestEnemy(range){
-    let best = null, bestD2 = Infinity;
-    const r2 = range*range;
-    for (const e of enemies){
       const d2 = dist2(e.x,e.y,player.x,player.y);
-      if (d2 > r2 || d2 >= bestD2) continue;
-      bestD2 = d2;
-      best = e;
+      const score = nearby*100000 - d2;
+      if (score > bestScore){
+        bestScore = score;
+        best = e;
+      }
     }
     return best;
   }
-  function getSkillRadius(id){
-    const lv = skillLv[id] || 1;
-    return (skillDefs[id]?.radius || 110) + lv*8;
+  function getSkillLevelDamageScale(level){
+    return 1 + (Math.max(1, level)-1)*0.34;
   }
-  function getSkillRange(id){
-    const lv = skillLv[id] || 1;
-    return (skillDefs[id]?.range || 300) + lv*6;
+  function getNearestEnemyTo(x,y, excludeSet){
+    let best = null, bestD2 = Infinity;
+    for (const e of enemies){
+      if (e.hp<=0 || (excludeSet && excludeSet.has(e))) continue;
+      const d2 = dist2(x,y,e.x,e.y);
+      if (d2 < bestD2){ bestD2 = d2; best = e; }
+    }
+    return best;
   }
-  function chooseSkillTarget(id){
-    if (id === 'heal' || id === 'blades' || id === 'pillars') return {x:player.x, y:player.y};
-    const range = getSkillRange(id);
-    const clusterSkills = new Set(['surge','pulse','prism','meteor','frost','vortex']);
-    const target = clusterSkills.has(id) ? (findBestEnemyCluster(range) || findNearestEnemy(range)) : (findNearestEnemy(range) || findBestEnemyCluster(range));
-    return target ? {x:target.x, y:target.y} : {x:player.x, y:player.y};
+  function dealRadialDamage(x,y,radius,damage,knock){
+    const r2 = radius*radius;
+    let hits = 0;
+    for (const e of enemies){
+      if (e.hp<=0) continue;
+      const d2 = dist2(e.x,e.y,x,y);
+      if (d2 > r2) continue;
+      const d = Math.sqrt(d2) || 1;
+      applyDamage(e, Math.floor(damage), {shock:true});
+      const nx = (e.x-x)/d, ny = (e.y-y)/d;
+      e.vx = nx*knock;
+      e.vy = ny*knock;
+      hits += 1;
+    }
+    return hits;
   }
   function beginSkillCast(slotKey){
     if (isUiBlockingInput() || paused || gameOver) return;
@@ -920,57 +927,131 @@ function initGame(){
     const def = skillDefs[id];
     if (!def || !isSkillLearned(id)) return;
     if ((skillCooldowns[slotKey]||0) > 0){ beep(180,0.05,"square",0.05); return; }
-    const t = chooseSkillTarget(id);
-    performSkill(slotKey, id, t.x, t.y);
+    const castOk = performSkill(id, skillLv[id]||1);
+    if (!castOk){ beep(180,0.05,"square",0.05); return; }
+    skillCooldowns[slotKey] = def.cooldown;
+    beep(780,0.07,'triangle',0.07);
   }
 
-  function performSkill(slotKey, id, x, y){
-    const def = skillDefs[id];
-    if (!def) return;
-    const lv = Math.max(1, skillLv[id]||1);
-    const radius = getSkillRadius(id);
-    const dmgBase = Math.floor((26 + lv*10) * (1 + upgrades.dmg*0.06));
-    let castOk = true;
+  function performSkill(id, level){
+    const lv = Math.max(1, level||1);
+    const dmgScale = getSkillLevelDamageScale(lv) * (1 + upgrades.dmg*0.06);
+    const target = getBestTarget();
 
-    if (id === 'surge') explode(x,y,radius,dmgBase*1.2);
-    else if (id === 'pulse'){
-      aoes.push({x,y,r:radius,life:0.4,max:0.4,dmg:dmgBase,col:'rgba(130,110,255,.28)',knock:220});
-    }else if (id === 'prism'){
-      for (let i=0;i<4;i++) aoes.push({x:x+rand(-20,20),y:y+rand(-20,20),r:Math.max(26,radius*0.45),life:1.2-i*0.18,max:1.2,dmg:dmgBase*0.45,col:'rgba(70,240,255,.20)',knock:70});
-    }else if (id === 'meteor') explode(x,y,radius,dmgBase*1.6);
-    else if (id === 'frost'){
-      slowField.t = Math.max(slowField.t, 2.4 + lv*0.2);
-      slowField.mul = 0.55;
-      aoes.push({x,y,r:radius,life:0.8,max:0.8,dmg:dmgBase*0.6,col:'rgba(120,220,255,.24)',knock:30});
-    }else if (id === 'chain'){
-      const near = enemies.filter(e=>dist2(e.x,e.y,x,y)<radius*radius).slice(0,8+lv);
-      for (let i=0;i<near.length;i++) applyDamage(near[i], Math.floor(dmgBase*0.55), {shock:true});
-    }else if (id === 'vortex'){
-      aoes.push({x,y,r:radius,life:1.0,max:1.0,dmg:dmgBase*0.5,col:'rgba(138,107,255,.26)',knock:-180});
-    }else if (id === 'heal'){
-      player.hp = Math.min(player.maxHp, player.hp + Math.round(player.maxHp*(0.16 + lv*0.03)));
-      aoes.push({x:player.x,y:player.y,r:radius,life:0.65,max:0.65,dmg:0,col:'rgba(100,255,172,.22)',knock:0});
-    }else if (id === 'blades'){
-      for (let i=0;i<8+lv;i++){
-        const a=(Math.PI*2*i)/(8+lv);
-        explode(player.x+Math.cos(a)*42, player.y+Math.sin(a)*42, Math.max(28,radius*0.3), dmgBase*0.5);
-      }
-    }else if (id === 'pillars'){
-      let casted = 0;
-      for (const sh of shadows){
-        if ((sh.pillarCd||0) > 0) continue;
-        sh.pillarCd = SHADOW_PILLAR_COOLDOWN;
-        summonShadowPillars(sh);
-        casted += 1;
-      }
-      castOk = casted > 0;
-      if (!castOk) beep(180,0.05,"square",0.05);
+    if (id==='heal'){
+      player.hp = Math.min(player.maxHp, player.hp + Math.round(player.maxHp*0.25));
+      player.shield = Math.max(player.shield||0, Math.round(player.maxHp*(0.16 + lv*0.03)));
+      player.shieldT = Math.max(player.shieldT||0, 2.0);
+      effects.push({ x:player.x, y:player.y, t:0, life:0.55, dead:false,
+        update(dt){ this.t+=dt; this.x=player.x; this.y=player.y; if (this.t>=this.life) this.dead=true; },
+        draw(ctx){ const p=toScreen(this.x,this.y); const k=this.t/this.life; ctx.beginPath(); ctx.arc(p.sx,p.sy,24+180*k,0,Math.PI*2); ctx.fillStyle=`rgba(100,255,172,${0.32*(1-k)})`; ctx.fill(); }
+      });
+      return true;
     }
+    if (!target && id!=='blades') return false;
 
-    if (castOk){
-      skillCooldowns[slotKey] = def.cooldown;
-      beep(780,0.07,'triangle',0.07);
+    if (id==='surge' || id==='pulse' || id==='prism'){
+      const x=target.x, y=target.y;
+      const damage = (80 + lv*25) * dmgScale;
+      dealRadialDamage(x,y,100,damage,350);
+      effects.push({x,y,t:0,life:0.35,dead:false,update(dt){this.t+=dt;if(this.t>=this.life)this.dead=true;},draw(ctx){const p=toScreen(this.x,this.y);const k=this.t/this.life;ctx.beginPath();ctx.arc(p.sx,p.sy,20+120*k,0,Math.PI*2);ctx.fillStyle=`rgba(101,199,255,${0.35*(1-k)})`;ctx.fill();ctx.beginPath();ctx.arc(p.sx,p.sy,10+90*k,0,Math.PI*2);ctx.strokeStyle=`rgba(180,235,255,${0.9*(1-k)})`;ctx.lineWidth=3;ctx.stroke();}});
+      addShake(6,0.08);
+      return true;
     }
+    if (id==='vortex'){
+      const x=target.x, y=target.y;
+      const tickDamage = (24 + lv*12) * dmgScale;
+      effects.push({x,y,r:220,t:0,life:2.5,tick:0,dead:false,
+        update(dt){
+          this.t += dt; this.tick += dt;
+          if (this.t>=this.life){ this.dead=true; return; }
+          for (const e of enemies){
+            if (e.hp<=0) continue;
+            const dx=this.x-e.x, dy=this.y-e.y, d=Math.hypot(dx,dy)||1;
+            if (d>this.r) continue;
+            const s = (1-d/this.r);
+            const pull = 260 + 480*s;
+            e.vx = (dx/d)*pull;
+            e.vy = (dy/d)*pull;
+            if (d < 26) e.stun = Math.max(e.stun||0, 0.4);
+            if (this.tick>=0.2) applyDamage(e, Math.floor(tickDamage), {shock:true});
+          }
+          if (this.tick>=0.2) this.tick = 0;
+        },
+        draw(ctx){ const p=toScreen(this.x,this.y); const k=this.t/this.life; ctx.beginPath(); ctx.arc(p.sx,p.sy,this.r*(1-0.08*Math.sin(this.t*9)),0,Math.PI*2); ctx.fillStyle=`rgba(138,107,255,${0.18*(1-k*0.5)})`; ctx.fill(); ctx.beginPath(); ctx.arc(p.sx,p.sy,36+18*Math.sin(this.t*18),0,Math.PI*2); ctx.fillStyle='rgba(206,180,255,.30)'; ctx.fill(); }
+      });
+      return true;
+    }
+    if (id==='frost'){
+      const x=target.x, y=target.y;
+      const damage = (50 + lv*16) * dmgScale;
+      const r2 = 160*160;
+      for (const e of enemies){
+        if (e.hp<=0 || dist2(e.x,e.y,x,y)>r2) continue;
+        applyDamage(e, Math.floor(damage), {shock:false});
+        e.freeze = Math.max(e.freeze||0, 1.5);
+        e.postSlow = Math.max(e.postSlow||0, 2.0);
+      }
+      effects.push({x,y,t:0,life:0.5,dead:false,update(dt){this.t+=dt;if(this.t>=this.life)this.dead=true;},draw(ctx){const p=toScreen(this.x,this.y);const k=this.t/this.life;ctx.beginPath();ctx.arc(p.sx,p.sy,20+170*k,0,Math.PI*2);ctx.fillStyle=`rgba(139,216,255,${0.32*(1-k)})`;ctx.fill();}});
+      return true;
+    }
+    if (id==='meteor'){
+      const x=target.x, y=target.y;
+      const damage = (130 + lv*40) * dmgScale;
+      effects.push({x,y,t:0,life:0.6,dead:false,
+        update(dt){
+          this.t += dt;
+          if (this.t>=this.life){
+            dealRadialDamage(this.x,this.y,145,damage,420);
+            addShake(9,0.1);
+            effects.push({x:this.x,y:this.y,t:0,life:0.4,dead:false,update(dt){this.t+=dt;if(this.t>=this.life)this.dead=true;},draw(ctx){const p=toScreen(this.x,this.y);const k=this.t/this.life;ctx.beginPath();ctx.arc(p.sx,p.sy,40+170*k,0,Math.PI*2);ctx.fillStyle=`rgba(255,90,70,${0.35*(1-k)})`;ctx.fill();}});
+            this.dead = true;
+          }
+        },
+        draw(ctx){const p=toScreen(this.x,this.y);const k=this.t/this.life;ctx.beginPath();ctx.arc(p.sx,p.sy,145,0,Math.PI*2);ctx.strokeStyle=`rgba(255,80,80,${0.9-0.6*k})`;ctx.lineWidth=4;ctx.stroke();}
+      });
+      return true;
+    }
+    if (id==='chain'){
+      const chain = [];
+      const used = new Set();
+      let cur = target;
+      let damage = (95 + lv*22) * dmgScale;
+      for (let i=0;i<8 && cur;i++){
+        chain.push({x:cur.x,y:cur.y});
+        applyDamage(cur, Math.floor(damage), {shock:true});
+        used.add(cur);
+        damage *= 0.85;
+        cur = getNearestEnemyTo(cur.x,cur.y,used);
+      }
+      effects.push({pts:chain,t:0,life:0.22,dead:false,update(dt){this.t+=dt;if(this.t>=this.life)this.dead=true;},draw(ctx){const a=1-this.t/this.life;ctx.strokeStyle=`rgba(248,255,118,${a})`;ctx.lineWidth=3;ctx.beginPath();for(let i=0;i<this.pts.length;i++){const p=toScreen(this.pts[i].x,this.pts[i].y);if(i===0)ctx.moveTo(p.sx,p.sy);else ctx.lineTo(p.sx,p.sy);}ctx.stroke();}});
+      return chain.length>0;
+    }
+    if (id==='blades'){
+      effects.push({t:0,life:3.0,dead:false,update(dt){
+        this.t += dt;
+        if (this.t>=this.life){ this.dead=true; return; }
+        const blades = 6 + Math.floor(lv*0.5);
+        for (let i=0;i<blades;i++){
+          const a = this.t*5 + (Math.PI*2*i)/blades;
+          const bx = player.x + Math.cos(a)*80;
+          const by = player.y + Math.sin(a)*80;
+          for (const e of enemies){
+            if (e.hp<=0) continue;
+            if (dist2(bx,by,e.x,e.y) <= (26+e.r)*(26+e.r)) applyDamage(e, Math.floor((22+lv*8)*dmgScale*dt*6), {shock:false});
+          }
+        }
+      },draw(ctx){
+        const blades = 6 + Math.floor(lv*0.5);
+        for (let i=0;i<blades;i++){
+          const a = this.t*5 + (Math.PI*2*i)/blades;
+          const p = toScreen(player.x + Math.cos(a)*80, player.y + Math.sin(a)*80);
+          ctx.save(); ctx.translate(p.sx,p.sy); ctx.rotate(a); ctx.fillStyle='rgba(255,118,225,.92)'; ctx.fillRect(-12,-3,24,6); ctx.restore();
+        }
+      }});
+      return true;
+    }
+    return false;
   }
 
 
@@ -1504,7 +1585,7 @@ function closeShop(){
   let gameOver=false;
   let nextEnemyScaleT;
 
-  const player = { x:0, y:0, r:12, hp:100, maxHp:100, spd:260, iFrames:0 };
+  const player = { x:0, y:0, r:12, hp:100, maxHp:100, spd:260, iFrames:0, shield:0, shieldT:0 };
   const stats = { t:0, kills:0, score:0 };
   const enemyScale = { hpMul:1.0, spdMul:1.0, dmgMul:1.0 };
   const leveling = { lv:1, xp:0, need:10 };
@@ -1542,6 +1623,7 @@ function closeShop(){
 
   // Entities
   const enemies=[], bullets=[], orbs=[], healOrbs=[], particles=[], enemyBullets=[], aoes=[], shadows=[], shadowBullets=[], shadowPillars=[];
+  const effects = window.effects || (window.effects = []);
   const pillarGrid = new Map();
 
   // Global slow field (from skill)
@@ -2292,7 +2374,13 @@ function closeShop(){
   // Player damage
   function hitPlayer(dmg){
     if (player.iFrames>0) return;
-    player.hp -= dmg;
+    let incoming = dmg;
+    if ((player.shield||0) > 0 && (player.shieldT||0) > 0){
+      const block = Math.min(player.shield, incoming);
+      player.shield -= block;
+      incoming -= block;
+    }
+    if (incoming>0) player.hp -= incoming;
     player.iFrames = 0.45;
     addShake(4,0.10);
     beep(140,0.06,"square",0.08);
@@ -2363,6 +2451,11 @@ function closeShop(){
       ctx.fillStyle=a.col;
       ctx.arc(p.sx,p.sy,a.r,0,Math.PI*2);
       ctx.fill();
+    }
+
+    // Skill effects
+    for (const fx of effects){
+      if (fx?.draw) fx.draw(ctx);
     }
 
     // Heal Orbs (red)
@@ -2614,6 +2707,10 @@ function closeShop(){
         beep(220,0.06,'sine',0.05);
       }
       if (slowField.t>0){ slowField.t = Math.max(0, slowField.t-dt); }
+      if (player.shieldT>0){
+        player.shieldT = Math.max(0, player.shieldT - dt);
+        if (player.shieldT<=0) player.shield = 0;
+      }
 
 
       // biome affects cap slightly
@@ -2761,9 +2858,23 @@ function closeShop(){
 
       // enemies chase + special behaviors
       for (const e of enemies){
+        e.vx = e.vx || 0;
+        e.vy = e.vy || 0;
+        e.stun = Math.max(0, (e.stun||0) - dt);
+        if ((e.freeze||0) > 0){
+          e.freeze = Math.max(0, e.freeze - dt);
+          if (e.freeze<=0) e.slow = Math.max(e.slow||0, 0.5);
+        }
+        if ((e.postSlow||0) > 0){
+          e.postSlow = Math.max(0, e.postSlow - dt);
+          if (e.postSlow<=0) e.slow = 0;
+          else e.slow = Math.max(e.slow||0, 0.5);
+        }
+
         // slow decay
         e.slow = Math.max(0, e.slow - dt*0.45);
         const slowMul = (1 - clamp(e.slow, 0, 0.65)) * (slowField.t>0 ? slowField.mul : 1.0);
+        const hardCrowdControl = (e.stun||0) > 0 || (e.freeze||0) > 0;
 
 
         // --- Boss Phase Abilities (time-based) ---
@@ -2825,8 +2936,14 @@ function closeShop(){
 
         const dx=player.x-e.x, dy=player.y-e.y;
         const len=Math.hypot(dx,dy)||1;
-        e.x += (dx/len)*e.spd*slowMul*dt;
-        e.y += (dy/len)*e.spd*slowMul*dt;
+        if (!hardCrowdControl){
+          e.x += (dx/len)*e.spd*slowMul*dt;
+          e.y += (dy/len)*e.spd*slowMul*dt;
+        }
+        e.x += e.vx*dt;
+        e.y += e.vy*dt;
+        e.vx *= (1-dt*6.5);
+        e.vy *= (1-dt*6.5);
 
         // shooter: fire at player
         if (e.type==="shooter"){
@@ -2980,6 +3097,13 @@ function closeShop(){
         if (a.life<=0) aoes.splice(i,1);
       }
 
+      // skill effects tick
+      for (let i=effects.length-1;i>=0;i--){
+        const fx = effects[i];
+        if (fx?.update) fx.update(dt);
+        if (fx?.dead) effects.splice(i,1);
+      }
+
       // performance: cull far enemies (keep boss)
       const cullR = 1350;
       // --- Shadows (captured bosses): follow + attack ---
@@ -3117,7 +3241,7 @@ function closeShop(){
     ui.shopModal.classList.remove('show');
 
     enemies.length=0; bullets.length=0; orbs.length=0;
-    particles.length=0; enemyBullets.length=0; aoes.length=0;
+    particles.length=0; enemyBullets.length=0; aoes.length=0; effects.length=0;
 
     healOrbs.length=0;
     shadows.length=0; shadowBullets.length=0; shadowPillars.length=0;
