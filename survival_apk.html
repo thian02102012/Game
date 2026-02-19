@@ -69,7 +69,8 @@
       background:rgba(0,0,0,.55);z-index:50;padding:14px
     }
     /* Force black backdrop for Shop & Settings */
-    #shopModal, #settingsModal{ background:#000 !important; }
+    #shopModal, #settingsModal, #multiplayerModal{ background:#000 !important; }
+    #multiplayerModal{ background:rgba(0,0,0,.92) !important; }
 
     .modal.show{display:grid}
 
@@ -538,6 +539,7 @@
       <h2>Multiplayer</h2>
       <div class="hint" id="mpStatus">Disconnected</div>
       <div class="multiPanel">
+        <input id="mpServerUrl" placeholder="ws://server:8080" style="width:100%;background:#0f1322;color:#fff;border:1px solid #2b3357;border-radius:10px;padding:8px" />
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn" id="mpCreate">Create Room</button>
           <input id="mpCode" placeholder="Room code" style="flex:1;min-width:120px;background:#0f1322;color:#fff;border:1px solid #2b3357;border-radius:10px;padding:8px" />
@@ -627,6 +629,7 @@ function initGame(){
 
     multiplayerModal: document.getElementById('multiplayerModal'),
     mpStatus: document.getElementById('mpStatus'),
+    mpServerUrl: document.getElementById('mpServerUrl'),
     mpCreate: document.getElementById('mpCreate'),
     mpJoin: document.getElementById('mpJoin'),
     mpCode: document.getElementById('mpCode'),
@@ -640,6 +643,19 @@ function initGame(){
   const dist2 = (ax,ay,bx,by)=>{const dx=ax-bx,dy=ay-by; return dx*dx+dy*dy;};
   const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
   const rand = (a,b)=>a+Math.random()*(b-a);
+  let rngSeedState = 0x12345678;
+  function setRNGSeed(seed){
+    let n = (seed >>> 0) || 1;
+    rngSeedState = n;
+  }
+  function rng(){
+    rngSeedState = (rngSeedState + 0x6D2B79F5) >>> 0;
+    let t = rngSeedState;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  }
+  const rngRange = (a,b)=>a+rng()*(b-a);
   const SHAKE_ENABLED = false;
 
   // Screen shake disabled (Android landscape-only build)
@@ -1803,7 +1819,7 @@ function closeShop(){
     paused = false;
   });
 
-  bindStartBtn(startMultiplayerBtn, ()=>{ hideStartMenu(); openMP(); });
+  bindStartBtn(startMultiplayerBtn, ()=>{ showStartMenu(); paused = true; openMP(); });
 
   bindStartBtn(startShopBtn, ()=>{
     hideStartMenu();
@@ -1826,16 +1842,257 @@ function closeShop(){
 
 
   // --- Multiplayer (host-authoritative, room-based) ---
-  const net = {ws:null,room:'',isHost:false,players:[],seed:0,url:(location.protocol==='https:'?'wss://':'ws://')+(location.hostname||'localhost')+':8080',connected:false};
-  function mpSend(type,payload={}){ try{ if(net.ws&&net.ws.readyState===1) net.ws.send(JSON.stringify({type,...payload})); }catch(_){ } }
-  function renderLobby(){ if(!ui.mpPlayers) return; ui.mpPlayers.innerHTML=''; (net.players||[]).forEach(p=>{const d=document.createElement('div');d.className='stat';d.textContent=(p.host?'👑 ':'')+p.name;ui.mpPlayers.appendChild(d);}); if(ui.mpRoom) ui.mpRoom.textContent=net.room||'-'; if(ui.mpStatus) ui.mpStatus.textContent=net.connected?'Connected':'Disconnected'; if(ui.mpStart) ui.mpStart.style.display=net.isHost?'inline-block':'none'; }
-  function connectMP(){ if(net.ws && (net.ws.readyState===0||net.ws.readyState===1)) return; try{ net.ws=new WebSocket(net.url); }catch(_){ renderLobby(); return; } net.ws.onopen=()=>{net.connected=true; renderLobby();}; net.ws.onclose=()=>{net.connected=false; renderLobby(); setTimeout(connectMP,1200);}; net.ws.onmessage=(ev)=>{ let m={}; try{m=JSON.parse(ev.data);}catch(_){return;} if(m.type==='LOBBY_STATE'){ net.room=m.room||net.room; net.players=m.players||[]; net.isHost=!!m.isHost; renderLobby(); } if(m.type==='START_GAME'){ if (m.seed) Math.seed = m.seed; hideStartMenu(); ui.multiplayerModal?.classList.remove('show'); paused=false; } if(m.type==='PING') mpSend('PONG'); }; }
-  function openMP(){ ui.multiplayerModal?.classList.add('show'); connectMP(); renderLobby(); }
-  ui.mpClose?.addEventListener('click',()=>ui.multiplayerModal?.classList.remove('show'));
-  ui.mpCreate?.addEventListener('click',()=>{connectMP(); mpSend('CREATE_ROOM');});
-  ui.mpJoin?.addEventListener('click',()=>{connectMP(); mpSend('JOIN_ROOM',{room:(ui.mpCode?.value||'').trim().toUpperCase()});});
-  ui.mpStart?.addEventListener('click',()=>{const seed=(Math.random()*1e9)|0; mpSend('SYNC_SEED',{seed,startTime:Date.now(),difficulty:enemyScale.hpMul}); mpSend('START_GAME');});
-  ui.multiplayerModal?.addEventListener('pointerdown',(e)=>{if(e.target===ui.multiplayerModal) ui.multiplayerModal.classList.remove('show');});
+  const MP_SERVER_KEY = 'mp_server_url';
+  function defaultMPUrl(){
+    const saved = (localStorage.getItem(MP_SERVER_KEY) || '').trim();
+    if (saved) return saved;
+    if ((location.protocol === 'http:' || location.protocol === 'https:') && location.hostname){
+      const wsProto = location.protocol === 'https:' ? 'wss://' : 'ws://';
+      const hasPort = !!location.port;
+      return wsProto + location.hostname + (hasPort ? ':' + location.port : '');
+    }
+    return '';
+  }
+
+  const net = {
+    ws:null,
+    room:'',
+    isHost:false,
+    players:[],
+    seed:0,
+    url: defaultMPUrl(),
+    connected:false,
+    status:'Disconnected',
+    reconnectTimer:null,
+    connecting:false
+  };
+  const mpState = { seed:null, startTime:null, difficulty:null, pendingStart:false };
+  let mpEnabled = false;
+  const mpQueue = [];
+
+  if (ui.mpServerUrl) ui.mpServerUrl.value = net.url;
+
+  function setMPStatus(text){
+    net.status = text;
+    if (ui.mpStatus) ui.mpStatus.textContent = text;
+  }
+
+  function updateMPButtons(){
+    const isConnecting = !!(net.ws && net.ws.readyState === WebSocket.CONNECTING);
+    if (ui.mpCreate) ui.mpCreate.disabled = isConnecting;
+    if (ui.mpJoin) ui.mpJoin.disabled = isConnecting;
+  }
+
+  function renderLobby(){
+    if(!ui.mpPlayers) return;
+    ui.mpPlayers.innerHTML='';
+    (net.players||[]).forEach(p=>{
+      const d=document.createElement('div');
+      d.className='stat';
+      d.textContent=(p.host?'👑 ':'')+p.name;
+      ui.mpPlayers.appendChild(d);
+    });
+    if (!net.players.length){
+      const d=document.createElement('div');
+      d.className='hint';
+      d.textContent='No players yet.';
+      ui.mpPlayers.appendChild(d);
+    }
+    if(ui.mpRoom) ui.mpRoom.textContent=net.room||'-';
+    setMPStatus(net.status || (net.connected?'Connected':'Disconnected'));
+    if(ui.mpStart) ui.mpStart.style.display=net.isHost?'inline-block':'none';
+    if(ui.mpStart) ui.mpStart.disabled=!net.isHost || !net.connected;
+    if (!net.isHost && ui.mpStart){
+      ui.mpStart.textContent = 'Waiting host...';
+    } else if (ui.mpStart){
+      ui.mpStart.textContent = 'Start';
+    }
+    updateMPButtons();
+  }
+
+  function flushMPQueue(){
+    if (!net.ws || net.ws.readyState !== WebSocket.OPEN) return;
+    while (mpQueue.length){
+      net.ws.send(JSON.stringify(mpQueue.shift()));
+    }
+  }
+
+  function mpSend(type,payload={}){
+    const msg = {type,...payload};
+    if(net.ws&&net.ws.readyState===WebSocket.OPEN){
+      try{ net.ws.send(JSON.stringify(msg)); }catch(_){ mpQueue.push(msg); }
+      return;
+    }
+    mpQueue.push(msg);
+    if (mpEnabled) setMPStatus('Đang kết nối...');
+  }
+
+  function validateMPUrl(url){
+    return /^wss?:\/\//i.test(url || '');
+  }
+
+  function closeMPSocket(){
+    if (net.reconnectTimer){ clearTimeout(net.reconnectTimer); net.reconnectTimer = null; }
+    if (net.ws){
+      try{ net.ws.onclose = null; net.ws.close(1000, 'modal closed'); }catch(_){ }
+      net.ws = null;
+    }
+    net.connected = false;
+    net.connecting = false;
+    net.status = 'Disconnected';
+    updateMPButtons();
+  }
+
+  function connectMP(){
+    const targetUrl = (ui.mpServerUrl?.value || '').trim();
+    if (!validateMPUrl(targetUrl)){
+      setMPStatus('Server URL không hợp lệ');
+      return false;
+    }
+    net.url = targetUrl;
+    localStorage.setItem(MP_SERVER_KEY, targetUrl);
+    if(net.ws && (net.ws.readyState===WebSocket.CONNECTING||net.ws.readyState===WebSocket.OPEN)){
+      setMPStatus(net.ws.readyState===WebSocket.CONNECTING ? 'Connecting...' : 'Connected');
+      updateMPButtons();
+      return true;
+    }
+    try{ net.ws=new WebSocket(net.url); }catch(_){ setMPStatus('Disconnected'); renderLobby(); return false; }
+    net.connected=false;
+    net.connecting=true;
+    setMPStatus('Connecting...');
+    updateMPButtons();
+    net.ws.onopen=()=>{
+      net.connected=true;
+      net.connecting=false;
+      setMPStatus('Connected');
+      flushMPQueue();
+      renderLobby();
+    };
+    net.ws.onclose=()=>{
+      net.connected=false;
+      net.connecting=false;
+      setMPStatus('Disconnected');
+      updateMPButtons();
+      renderLobby();
+      net.ws = null;
+      if (mpEnabled){
+        if (net.reconnectTimer) clearTimeout(net.reconnectTimer);
+        net.reconnectTimer = setTimeout(()=>{ net.reconnectTimer=null; connectMP(); },1200);
+      }
+    };
+    net.ws.onmessage=(ev)=>{
+      let m={};
+      try{m=JSON.parse(ev.data);}catch(_){return;}
+      switch(m.type){
+        case 'LOBBY_STATE':
+          net.room=m.room||net.room;
+          net.players=m.players||[];
+          net.isHost=!!m.isHost;
+          renderLobby();
+          break;
+        case 'SYNC_SEED':
+          mpState.seed = (m.seed ?? mpState.seed);
+          mpState.startTime = (m.startTime ?? mpState.startTime);
+          mpState.difficulty = (m.difficulty ?? mpState.difficulty);
+          if (mpState.pendingStart) tryStartMPGame();
+          break;
+        case 'START_GAME':
+          if (m.seed != null) mpState.seed = m.seed;
+          if (m.startTime != null) mpState.startTime = m.startTime;
+          if (m.difficulty != null) mpState.difficulty = m.difficulty;
+          if (mpState.seed == null){ mpState.pendingStart = true; return; }
+          tryStartMPGame();
+          break;
+        case 'CREATE_ROOM':
+        case 'JOIN_ROOM':
+        case 'INPUT':
+        case 'CAST_SKILL':
+        case 'SPAWN_EVENT':
+          break;
+        case 'PING':
+          mpSend('PONG');
+          break;
+        case 'PONG':
+          break;
+        case 'ERROR':
+          setMPStatus(m.message || 'Disconnected');
+          break;
+        default:
+          break;
+      }
+    };
+    return true;
+  }
+
+  function tryStartMPGame(){
+    if (mpState.seed == null) return;
+    mpState.pendingStart = false;
+    setRNGSeed(mpState.seed >>> 0);
+    if (typeof mpState.difficulty === 'number' && Number.isFinite(mpState.difficulty)){
+      enemyScale.hpMul = mpState.difficulty;
+    }
+    if (mpState.startTime){
+      stats.t = Math.max(0, (Date.now() - mpState.startTime) / 1000);
+    }
+    last = performance.now();
+    hideStartMenu();
+    ui.multiplayerModal?.classList.remove('show');
+    mpEnabled = false;
+    paused=false;
+  }
+
+  function openMP(){
+    paused = true;
+    showStartMenu();
+    mpEnabled = true;
+    ui.multiplayerModal?.classList.add('show');
+    setMPStatus('Disconnected');
+    renderLobby();
+  }
+
+  function closeMP(){
+    mpEnabled = false;
+    closeMPSocket();
+    ui.multiplayerModal?.classList.remove('show');
+    showStartMenu();
+    paused = true;
+    renderLobby();
+  }
+
+  ui.mpClose?.addEventListener('click',closeMP);
+  ui.mpCreate?.addEventListener('click',()=>{
+    if(!connectMP()) return;
+    mpSend('CREATE_ROOM');
+  });
+  ui.mpJoin?.addEventListener('click',()=>{
+    const room = (ui.mpCode?.value||'').trim().toUpperCase();
+    if(!room){ setMPStatus('Nhập mã phòng'); return; }
+    if(!connectMP()) return;
+    mpSend('JOIN_ROOM',{room});
+  });
+  ui.mpStart?.addEventListener('click',()=>{
+    if (!net.isHost) return;
+    const seed=(Math.random()*1e9)|0;
+    const startTime=Date.now();
+    const difficulty=enemyScale.hpMul;
+    mpState.seed = seed;
+    mpState.startTime = startTime;
+    mpState.difficulty = difficulty;
+    mpSend('SYNC_SEED',{seed,startTime,difficulty});
+    mpSend('START_GAME',{seed,startTime,difficulty});
+    tryStartMPGame();
+  });
+
+  ui.multiplayerModal?.addEventListener('pointerdown',(e)=>{ if(e.target===ui.multiplayerModal) closeMP(); });
+  ui.multiplayerModal?.addEventListener('pointerdown',(e)=>{ e.stopPropagation(); }, {passive:false});
+  addEventListener('keydown', (e)=>{
+    if (mpEnabled && ui.multiplayerModal?.classList.contains('show')){
+      e.stopPropagation();
+      const allow = ['Escape'];
+      if (!allow.includes(e.key)) e.preventDefault();
+      if (e.key === 'Escape') closeMP();
+    }
+  }, {passive:false});
 
   // Ensure start menu is visible on boot
   showStartMenu();
@@ -1972,7 +2229,7 @@ function closeShop(){
   function pickRandom(arr, count){
     const a = arr.slice();
     for (let i=a.length-1;i>0;i--){
-      const j=(Math.random()*(i+1))|0;
+      const j=(rng()*(i+1))|0;
       [a[i],a[j]]=[a[j],a[i]];
     }
     return a.slice(0, count);
@@ -1984,7 +2241,7 @@ function closeShop(){
     while (pool.length && out.length<count){
       let total = 0;
       for (const it of pool) total += rarityWeights[it.rarity] || 1;
-      let r = Math.random()*total;
+      let r = rng()*total;
       let idx = 0;
       for (let i=0;i<pool.length;i++){ r -= (rarityWeights[pool[i].rarity] || 1); if (r<=0){ idx=i; break; } }
       out.push(pool[idx]);
@@ -2263,13 +2520,13 @@ function closeShop(){
 
   // Enemies
   function spawnEnemy(kind=null){
-    const ang = Math.random()*Math.PI*2;
-    const dist = 380 + Math.random()*140;
+    const ang = rng()*Math.PI*2;
+    const dist = 380 + rng()*140;
     const ex = player.x + Math.cos(ang)*dist;
     const ey = player.y + Math.sin(ang)*dist;
 
     // kinds: fast, tank, elite, exploder, shooter, tele, shield, boss
-    const roll = Math.random();
+    const roll = rng();
     let type = kind || (
       roll < 0.13 ? "fast" :
       roll < 0.23 ? "tank" :
@@ -2286,14 +2543,14 @@ function closeShop(){
     else if (type==="tank"){ hp=28; spd=72; r=14; val=2; }
     else if (type==="elite"){ hp=70; spd=58; r=18; dmg=16; val=5; }
     else if (type==="exploder"){ hp=18; spd=98; r=12; dmg=14; val=2; }
-    else if (type==="shooter"){ hp=22; spd=82; r=12; dmg=12; val=2; cd=rand(0.3, 1.0); }
-    else if (type==="tele"){ hp=18; spd=88; r=11; dmg=12; val=2; cd=rand(1.0, 2.0); }
+    else if (type==="shooter"){ hp=22; spd=82; r=12; dmg=12; val=2; cd=rngRange(0.3, 1.0); }
+    else if (type==="tele"){ hp=18; spd=88; r=11; dmg=12; val=2; cd=rngRange(1.0, 2.0); }
     else if (type==="shield"){ hp=24; spd=78; r=13; dmg=12; val=2; shield=18; }
 
     hp = Math.floor(hp * enemyScale.hpMul);
     spd = spd * enemyScale.spdMul;
     dmg = Math.floor(dmg * enemyScale.dmgMul);
-    const resist={arcane:1+rand(-0.1,0.1),lightning:1+rand(-0.1,0.1),frost:1+rand(-0.1,0.1),fire:1+rand(-0.1,0.1),gravity:1+rand(-0.1,0.1),physical:1+rand(-0.1,0.1)};
+    const resist={arcane:1+rngRange(-0.1,0.1),lightning:1+rngRange(-0.1,0.1),frost:1+rngRange(-0.1,0.1),fire:1+rngRange(-0.1,0.1),gravity:1+rngRange(-0.1,0.1),physical:1+rngRange(-0.1,0.1)};
     enemies.push({x:ex,y:ey,r,hp,maxHp:hp,spd,dmg,val,type,shield,slow,cd,isBoss,fx:0,fy:0,forceT:0,resist,status:{}});
   }
 
@@ -2301,12 +2558,12 @@ function closeShop(){
   const BOSS_INTERVAL = 90;
   let bossTimer = BOSS_INTERVAL;
   function spawnBoss(){
-    const ang = Math.random()*Math.PI*2;
+    const ang = rng()*Math.PI*2;
     const dist = 520;
     const ex = player.x + Math.cos(ang)*dist;
     const ey = player.y + Math.sin(ang)*dist;
     const hp = Math.floor((320 + stats.t*1.2) * enemyScale.hpMul);
-    const bossRes={arcane:1,lightning:1,frost:1,fire:1,gravity:1,physical:1}; const keys=["arcane","lightning","frost","fire","gravity","physical"]; keys.sort(()=>Math.random()-0.5); bossRes[keys[0]]=0.6; bossRes[keys[1]]=0.7; bossRes[keys[2]]=1.25;
+    const bossRes={arcane:1,lightning:1,frost:1,fire:1,gravity:1,physical:1}; const keys=["arcane","lightning","frost","fire","gravity","physical"]; keys.sort(()=>rng()-0.5); bossRes[keys[0]]=0.6; bossRes[keys[1]]=0.7; bossRes[keys[2]]=1.25;
     const boss = {x:ex,y:ey,r:26,hp,maxHp:hp,spd:68*enemyScale.spdMul,dmg:Math.floor(18*enemyScale.dmgMul),val:18,type:"boss",shield:0,slow:0,cd:1.3,isBoss:true,bossType:"Boss", dashCd:2.8, tpCd:5.0, orbCd:1.8, sumCd:3.0,fx:0,fy:0,forceT:0,resist:bossRes,weakness:keys[2],status:{}};
     enemies.push(boss);
     beep(160,0.16,"sawtooth",0.10);
@@ -2531,8 +2788,8 @@ function closeShop(){
     stats.kills += 1;
     coins += (e.isBoss ? 50 : 3);
     dropOrb(e.x,e.y,e.val);
-    if (Math.random() < 0.03){
-      const amt = Math.round(player.maxHp * (0.18 + Math.random()*0.10));
+    if (rng() < 0.03){
+      const amt = Math.round(player.maxHp * (0.18 + rng()*0.10));
       dropHeal(e.x+rand(-10,10), e.y+rand(-10,10), amt);
     }
 
@@ -2567,8 +2824,8 @@ function closeShop(){
       r: Math.max(18, boss.r*0.85),
       fireCd: 0.0,
       pulseCd: 4.2,
-      pillarCd: 1.2 + Math.random()*1.8,
-      orbitSeed: Math.random()*Math.PI*2,
+      pillarCd: 1.2 + rng()*1.8,
+      orbitSeed: rng()*Math.PI*2,
       orbitIndex: shadows.length,
       role: boss.role || null,
       upgrades: {},
@@ -3049,11 +3306,11 @@ function closeShop(){
       while (healSpawnAcc >= 1){
         healSpawnAcc -= 1;
         if (healOrbs.length < 7){
-          const ang = Math.random()*Math.PI*2;
-          const dist = 220 + Math.random()*220;
+          const ang = rng()*Math.PI*2;
+          const dist = 220 + rng()*220;
           const hx = player.x + Math.cos(ang)*dist;
           const hy = player.y + Math.sin(ang)*dist;
-          const amt = Math.round(player.maxHp * (0.16 + Math.random()*0.12));
+          const amt = Math.round(player.maxHp * (0.16 + rng()*0.12));
           dropHeal(hx, hy, amt);
         }
       }
@@ -3209,8 +3466,8 @@ function closeShop(){
             e.tpCd -= dt;
             if (e.tpCd <= 0){
               e.tpCd = 5.0;
-              const ang = Math.random()*Math.PI*2;
-              const off = 80 + Math.random()*70; // avoid unfair zero-distance
+              const ang = rng()*Math.PI*2;
+              const off = 80 + rng()*70; // avoid unfair zero-distance
               e.x = player.x + Math.cos(ang)*off;
               e.y = player.y + Math.sin(ang)*off;
               addShake(5,0.10);
@@ -3245,8 +3502,8 @@ function closeShop(){
             if (e.sumCd <= 0){
               e.sumCd = 3.8;
               for (let k=0;k<2;k++){
-                const ang = Math.random()*Math.PI*2;
-                const dist = 100 + Math.random()*100;
+                const ang = rng()*Math.PI*2;
+                const dist = 100 + rng()*100;
                 const ex = player.x + Math.cos(ang)*dist;
                 const ey = player.y + Math.sin(ang)*dist;
                 const hp = Math.max(8, Math.floor(16 * enemyScale.hpMul * 0.45));
@@ -3592,6 +3849,7 @@ function closeShop(){
     player.spd=260; player.iFrames=0;
 
     stats.t=0; stats.kills=0; stats.score=0;
+    setRNGSeed((Math.random()*0xFFFFFFFF)>>>0);
     leveling.lv=1; leveling.xp=0; leveling.need=10;
     pendingLevelUps = 0;
 
@@ -3642,7 +3900,7 @@ const id=()=>Math.random().toString(36).slice(2,8).toUpperCase();
 wss.on('connection',ws=>{ws.pid=id();ws.on('message',raw=>{let m={};try{m=JSON.parse(raw);}catch{return;}
 if(m.type==='CREATE_ROOM'){const room=id();rooms.set(room,{host:ws,players:[ws]});ws.room=room;ws.send(JSON.stringify({type:'LOBBY_STATE',room,isHost:true,players:[{name:ws.pid,host:true}]}));}
 if(m.type==='JOIN_ROOM'){const r=rooms.get(m.room);if(!r)return; r.players.push(ws); ws.room=m.room; const players=r.players.map(p=>({name:p.pid,host:p===r.host})); for(const p of r.players)p.send(JSON.stringify({type:'LOBBY_STATE',room:m.room,isHost:p===r.host,players}));}
-if(m.type==='START_GAME'&&ws.room){const r=rooms.get(ws.room); if(r&&ws===r.host) for(const p of r.players)p.send(JSON.stringify({type:'START_GAME'}));}
+if(m.type==='START_GAME'&&ws.room){const r=rooms.get(ws.room); if(r&&ws===r.host) for(const p of r.players)p.send(JSON.stringify({type:'START_GAME',seed:m.seed,startTime:m.startTime,difficulty:m.difficulty}));}
 if((m.type==='INPUT'||m.type==='CAST_SKILL'||m.type==='SPAWN_EVENT'||m.type==='SYNC_SEED')&&ws.room){const r=rooms.get(ws.room); if(r) for(const p of r.players) if(p!==ws) p.send(raw.toString());}
 if(m.type==='PING') ws.send(JSON.stringify({type:'PONG'}));
 });
