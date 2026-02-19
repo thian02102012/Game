@@ -878,17 +878,30 @@ function initGame(){
   // --- Skill casting: tactical effects system ---
   function getBestTarget(){
     if (!enemies.length) return null;
-    let best = null, bestScore = -Infinity;
+    let best = null;
+    let bestScore = -Infinity;
+    const scanR = 170;
+    const scanR2 = scanR*scanR;
     for (const e of enemies){
-      let nearby = 0;
+      if (e.hp<=0) continue;
+      let count = 0;
+      let sx = 0, sy = 0;
       for (const n of enemies){
-        if (dist2(e.x,e.y,n.x,n.y) <= 180*180) nearby += 1;
+        if (n.hp<=0) continue;
+        const d2 = dist2(e.x,e.y,n.x,n.y);
+        if (d2 > scanR2) continue;
+        count += 1;
+        sx += n.x;
+        sy += n.y;
       }
-      const d2 = dist2(e.x,e.y,player.x,player.y);
-      const score = nearby*100000 - d2;
+      if (count<=0) continue;
+      const cx = sx/count, cy = sy/count;
+      const cohesion = 1/(1 + dist2(e.x,e.y,cx,cy)*0.00008);
+      const playerBias = 1/(1 + dist2(player.x,player.y,cx,cy)*0.000012);
+      const score = count*14 + cohesion*8 + playerBias*4;
       if (score > bestScore){
         bestScore = score;
-        best = e;
+        best = { x:cx, y:cy, anchor:e, density:count };
       }
     }
     return best;
@@ -911,6 +924,15 @@ function initGame(){
     e.fx = (e.fx||0) + fx*bossMul;
     e.fy = (e.fy||0) + fy*bossMul;
     e.forceT = Math.max(e.forceT||0, forceTime);
+  }
+  function getEnemiesInRadius(x,y,r){
+    const r2 = r*r;
+    const out = [];
+    for (const e of enemies){
+      if (e.hp<=0 || dist2(e.x,e.y,x,y)>r2) continue;
+      out.push(e);
+    }
+    return out;
   }
   function dealRadialDamage(x,y,radius,damage,knock, forceTime=0.3){
     const r2 = radius*radius;
@@ -945,13 +967,25 @@ function initGame(){
     const target = getBestTarget();
 
     if (id==='heal'){
-      const healAmt = Math.round(player.maxHp*(0.20 + lv*0.02));
+      const healAmt = Math.round(player.maxHp*0.25);
       player.hp = Math.min(player.maxHp, player.hp + healAmt);
-      player.shield = Math.max(player.shield||0, Math.round(player.maxHp*0.15));
+      player.shield = Math.max(player.shield||0, Math.round(player.maxHp*0.20));
       player.shieldT = Math.max(player.shieldT||0, 3.0);
-      effects.push({ x:player.x, y:player.y, t:0, life:0.65, dead:false,
+      effects.push({ x:player.x, y:player.y, t:0, life:0.8, dead:false,
         update(dt){ this.t+=dt; this.x=player.x; this.y=player.y; if (this.t>=this.life) this.dead=true; },
-        draw(ctx){ const p=toScreen(this.x,this.y); const k=this.t/this.life; ctx.beginPath(); ctx.arc(p.sx,p.sy,28+145*k,0,Math.PI*2); ctx.strokeStyle=`rgba(100,255,172,${0.85*(1-k)})`; ctx.lineWidth=4; ctx.stroke(); }
+        draw(ctx){
+          const p=toScreen(this.x,this.y);
+          const k=this.t/this.life;
+          ctx.beginPath();
+          ctx.arc(p.sx,p.sy,40+155*k,0,Math.PI*2);
+          ctx.strokeStyle=`rgba(100,255,172,${0.85*(1-k)})`;
+          ctx.lineWidth=4;
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.arc(p.sx,p.sy,16+88*k,0,Math.PI*2);
+          ctx.fillStyle=`rgba(100,255,172,${0.18*(1-k)})`;
+          ctx.fill();
+        }
       });
       return true;
     }
@@ -960,14 +994,14 @@ function initGame(){
 
     if (id==='surge'){
       const x=target.x, y=target.y;
-      const burst = (80 + lv*20) * dmgScale;
-      const tickDamage = (20 + lv*7) * dmgScale;
-      dealRadialDamage(x,y,108,burst,280,0.22);
-      effects.push({x,y,r:88,t:0,life:1.5,tick:0,dead:false,
+      const burst = (86 + lv*22) * dmgScale;
+      const tickDamage = (18 + lv*6) * dmgScale;
+      dealRadialDamage(x,y,122,burst,240,0.25);
+      effects.push({x,y,r:98,t:0,life:1.5,tick:0,dead:false,
         update(dt){
           this.t += dt; this.tick += dt;
           if (this.t>=this.life){ this.dead=true; return; }
-          if (this.tick>=0.25){
+          if (this.tick>=0.22){
             this.tick = 0;
             for (const e of enemies){
               if (e.hp<=0 || dist2(e.x,e.y,this.x,this.y) > this.r*this.r) continue;
@@ -975,38 +1009,42 @@ function initGame(){
             }
           }
         },
-        draw(ctx){ const p=toScreen(this.x,this.y); const a=1-this.t/this.life; ctx.beginPath(); ctx.arc(p.sx,p.sy,this.r,0,Math.PI*2); ctx.fillStyle=`rgba(102,210,255,${0.18*a})`; ctx.fill(); ctx.strokeStyle=`rgba(170,240,255,${0.9*a})`; ctx.lineWidth=2; ctx.stroke(); }
+        draw(ctx){
+          const p=toScreen(this.x,this.y); const a=1-this.t/this.life;
+          ctx.beginPath(); ctx.arc(p.sx,p.sy,this.r,0,Math.PI*2);
+          ctx.fillStyle=`rgba(102,210,255,${0.2*a})`; ctx.fill();
+          ctx.beginPath(); ctx.arc(p.sx,p.sy,this.r*(0.72+0.08*Math.sin(this.t*20)),0,Math.PI*2);
+          ctx.strokeStyle=`rgba(170,240,255,${0.95*a})`; ctx.lineWidth=3; ctx.stroke();
+        }
       });
       return true;
     }
 
     if (id==='pulse'){
       const x=target.x, y=target.y;
-      const radius = 156;
-      const damage = (55 + lv*16) * dmgScale;
+      const radius = 200;
       const r2 = radius*radius;
       for (const e of enemies){
         if (e.hp<=0) continue;
         const d2 = dist2(e.x,e.y,x,y);
         if (d2>r2) continue;
         const d = Math.sqrt(d2)||1;
-        applyDamage(e, Math.floor(damage), {shock:true});
         const k = 1 - d/radius;
-        applyEnemyForce(e, ((e.x-x)/d)*(550+350*k), ((e.y-y)/d)*(550+350*k), 0.35);
-        e.stun = Math.max(e.stun||0, 0.25);
+        applyEnemyForce(e, ((e.x-x)/d)*(820+520*k), ((e.y-y)/d)*(820+520*k), 0.34);
+        e.stun = Math.max(e.stun||0, 0.30);
       }
-      effects.push({x,y,t:0,life:0.35,dead:false,update(dt){this.t+=dt;if(this.t>=this.life)this.dead=true;},draw(ctx){const p=toScreen(this.x,this.y);const k=this.t/this.life;ctx.beginPath();ctx.arc(p.sx,p.sy,20+radius*k,0,Math.PI*2);ctx.strokeStyle=`rgba(180,130,255,${0.9*(1-k)})`;ctx.lineWidth=5;ctx.stroke();}});
+      effects.push({x,y,t:0,life:0.35,dead:false,update(dt){this.t+=dt;if(this.t>=this.life)this.dead=true;},draw(ctx){const p=toScreen(this.x,this.y);const k=this.t/this.life;ctx.beginPath();ctx.arc(p.sx,p.sy,18+radius*k,0,Math.PI*2);ctx.strokeStyle=`rgba(180,130,255,${0.95*(1-k)})`;ctx.lineWidth=6;ctx.stroke();ctx.beginPath();ctx.arc(p.sx,p.sy,8+radius*k*0.75,0,Math.PI*2);ctx.strokeStyle=`rgba(230,210,255,${0.75*(1-k)})`;ctx.lineWidth=2;ctx.stroke();}});
       return true;
     }
 
     if (id==='prism'){
       const x=target.x, y=target.y;
-      const tickDamage = (42 + lv*12) * dmgScale;
-      effects.push({x,y,r:132,t:0,life:2.2,zap:0,dead:false,arcs:[],
+      const tickDamage = (34 + lv*10) * dmgScale;
+      effects.push({x,y,r:146,t:0,life:2.6,zap:0,dead:false,arcs:[],
         update(dt){
           this.t += dt; this.zap += dt;
           if (this.t>=this.life){ this.dead=true; return; }
-          if (this.zap>=0.28){
+          if (this.zap>=0.4){
             this.zap = 0;
             const inRange = [];
             for (const e of enemies) if (e.hp>0 && dist2(e.x,e.y,this.x,this.y)<=this.r*this.r) inRange.push(e);
@@ -1015,17 +1053,20 @@ function initGame(){
             for (let i=0;i<Math.min(3,inRange.length);i++){
               const e = inRange[i];
               applyDamage(e, Math.floor(tickDamage), {shock:true});
-              this.arcs.push({x:e.x,y:e.y});
+              this.arcs.push({x:e.x,y:e.y,jitter:Math.random()*100});
             }
           }
         },
         draw(ctx){
           const p=toScreen(this.x,this.y); const a=1-this.t/this.life;
-          ctx.beginPath(); ctx.arc(p.sx,p.sy,this.r,0,Math.PI*2); ctx.strokeStyle=`rgba(80,255,238,${0.55*a})`; ctx.lineWidth=3; ctx.stroke();
+          ctx.beginPath(); ctx.arc(p.sx,p.sy,this.r,0,Math.PI*2); ctx.strokeStyle=`rgba(80,255,238,${0.6*a})`; ctx.lineWidth=3; ctx.stroke();
+          ctx.beginPath(); ctx.arc(p.sx,p.sy,14+8*Math.sin(this.t*16),0,Math.PI*2); ctx.fillStyle=`rgba(140,255,245,${0.45*a})`; ctx.fill();
           for (const t of this.arcs){
             const tp = toScreen(t.x,t.y);
-            ctx.beginPath(); ctx.moveTo(p.sx,p.sy); ctx.lineTo(tp.sx,tp.sy);
-            ctx.strokeStyle=`rgba(180,255,255,${0.85*a})`; ctx.lineWidth=2; ctx.stroke();
+            const mx = (p.sx+tp.sx)/2 + Math.sin(this.t*40+t.jitter)*12;
+            const my = (p.sy+tp.sy)/2 + Math.cos(this.t*36+t.jitter)*12;
+            ctx.beginPath(); ctx.moveTo(p.sx,p.sy); ctx.lineTo(mx,my); ctx.lineTo(tp.sx,tp.sy);
+            ctx.strokeStyle=`rgba(180,255,255,${0.9*a})`; ctx.lineWidth=2; ctx.stroke();
           }
         }
       });
@@ -1034,12 +1075,20 @@ function initGame(){
 
     if (id==='meteor'){
       const x=target.x, y=target.y;
-      const damage = (145 + lv*34) * dmgScale;
+      const damage = (165 + lv*38) * dmgScale;
       effects.push({x,y,t:0,life:0.6,dead:false,
         update(dt){
           this.t += dt;
           if (this.t>=this.life){
-            dealRadialDamage(this.x,this.y,152,damage,620,0.45);
+            const r = 160;
+            const r2 = r*r;
+            for (const e of enemies){
+              if (e.hp<=0 || dist2(e.x,e.y,this.x,this.y)>r2) continue;
+              const bossBonus = e.isBoss ? 1.7 : 1;
+              applyDamage(e, Math.floor(damage*bossBonus), {shock:true});
+              const dx = e.x-this.x, dy = e.y-this.y, d = Math.hypot(dx,dy)||1;
+              applyEnemyForce(e, (dx/d)*920, (dy/d)*920, 0.5);
+            }
             addShake(9,0.1);
             effects.push({x:this.x,y:this.y,t:0,life:0.32,dead:false,update(dt){this.t+=dt;if(this.t>=this.life)this.dead=true;},draw(ctx){const p=toScreen(this.x,this.y);const k=this.t/this.life;ctx.beginPath();ctx.arc(p.sx,p.sy,45+160*k,0,Math.PI*2);ctx.fillStyle=`rgba(255,110,80,${0.33*(1-k)})`;ctx.fill();}});
             this.dead = true;
@@ -1052,29 +1101,32 @@ function initGame(){
 
     if (id==='frost'){
       const x=target.x, y=target.y;
-      const damage = (38 + lv*11) * dmgScale;
+      const damage = (40 + lv*10) * dmgScale;
       const r2 = 168*168;
       for (const e of enemies){
         if (e.hp<=0 || dist2(e.x,e.y,x,y)>r2) continue;
         applyDamage(e, Math.floor(damage), {shock:false});
         e.freeze = Math.max(e.freeze||0, 0.6);
         e.postSlow = Math.max(e.postSlow||0, 2.0);
-        e.slow = Math.max(e.slow||0, 0.62);
+        e.slow = Math.max(e.slow||0, 0.50);
       }
-      effects.push({x,y,t:0,life:0.7,dead:false,update(dt){this.t+=dt;if(this.t>=this.life)this.dead=true;},draw(ctx){const p=toScreen(this.x,this.y);const k=this.t/this.life;ctx.beginPath();ctx.arc(p.sx,p.sy,26+170*k,0,Math.PI*2);ctx.strokeStyle=`rgba(150,226,255,${0.9*(1-k)})`;ctx.lineWidth=4;ctx.stroke();}});
+      effects.push({x,y,t:0,life:0.75,dead:false,update(dt){this.t+=dt;if(this.t>=this.life)this.dead=true;},draw(ctx){const p=toScreen(this.x,this.y);const k=this.t/this.life;ctx.beginPath();ctx.arc(p.sx,p.sy,26+170*k,0,Math.PI*2);ctx.strokeStyle=`rgba(150,226,255,${0.95*(1-k)})`;ctx.lineWidth=4;ctx.stroke();ctx.beginPath();ctx.arc(p.sx,p.sy,14+130*k,0,Math.PI*2);ctx.strokeStyle=`rgba(220,245,255,${0.65*(1-k)})`;ctx.lineWidth=2;ctx.stroke();}});
       return true;
     }
 
     if (id==='chain'){
+      const alive = enemies.filter(e=>e.hp>0);
+      if (!alive.length) return false;
       const chain = [];
       const used = new Set();
-      let cur = target;
-      let damage = (90 + lv*22) * dmgScale;
-      for (let i=0;i<10 && cur;i++){
+      let cur = target.anchor || getNearestEnemyTo(target.x,target.y);
+      let damage = (92 + lv*20) * dmgScale;
+      const jumps = clamp(8 + Math.floor(lv*0.5), 8, 12);
+      for (let i=0;i<jumps && cur;i++){
         chain.push({x:cur.x,y:cur.y});
         applyDamage(cur, Math.floor(damage), {shock:true});
         used.add(cur);
-        damage *= 0.84;
+        damage *= 0.85;
         let next = null, bestD2 = 240*240;
         for (const e of enemies){
           if (e.hp<=0 || used.has(e)) continue;
@@ -1083,14 +1135,15 @@ function initGame(){
         }
         cur = next;
       }
+      if (!chain.length) return false;
       effects.push({pts:chain,t:0,life:0.24,dead:false,update(dt){this.t+=dt;if(this.t>=this.life)this.dead=true;},draw(ctx){const a=1-this.t/this.life;ctx.strokeStyle=`rgba(248,255,118,${a})`;ctx.lineWidth=3;ctx.beginPath();for(let i=0;i<this.pts.length;i++){const p=toScreen(this.pts[i].x,this.pts[i].y);if(i===0)ctx.moveTo(p.sx,p.sy);else ctx.lineTo(p.sx,p.sy);}ctx.stroke();}});
-      return chain.length>0;
+      return true;
     }
 
     if (id==='vortex'){
       const x=target.x, y=target.y;
-      const tickDamage = (14 + lv*5) * dmgScale;
-      effects.push({x,y,r:190,t:0,life:1.2,tick:0,dead:false,
+      const tickDamage = (12 + lv*4) * dmgScale;
+      effects.push({x,y,r:220,t:0,life:1.2,tick:0,dead:false,
         update(dt){
           this.t += dt; this.tick += dt;
           if (this.t>=this.life){ this.dead=true; return; }
@@ -1099,52 +1152,57 @@ function initGame(){
             const dx=this.x-e.x, dy=this.y-e.y, d=Math.hypot(dx,dy)||1;
             if (d>this.r) continue;
             const s = 1-d/this.r;
-            const pull = (e.isBoss?240:540) + s*(e.isBoss?260:760);
-            applyEnemyForce(e, (dx/d)*pull*dt*8, (dy/d)*pull*dt*8, 0.16);
-            e.slow = Math.max(e.slow||0, 0.48);
+            const pullBase = e.isBoss ? 520 : 860;
+            const pull = pullBase + s*(e.isBoss?440:980);
+            applyEnemyForce(e, (dx/d)*pull, (dy/d)*pull, 0.2);
+            if (d < 42){
+              e.x = this.x - (dx/d)*42;
+              e.y = this.y - (dy/d)*42;
+            }
+            e.slow = Math.max(e.slow||0, 0.45);
             if (this.tick>=0.18) applyDamage(e, Math.floor(tickDamage), {shock:true});
           }
           if (this.tick>=0.18) this.tick = 0;
         },
-        draw(ctx){ const p=toScreen(this.x,this.y); const k=this.t/this.life; ctx.beginPath(); ctx.arc(p.sx,p.sy,this.r*(1-0.06*Math.sin(this.t*12)),0,Math.PI*2); ctx.fillStyle=`rgba(138,107,255,${0.2*(1-k*0.5)})`; ctx.fill(); ctx.beginPath(); ctx.arc(p.sx,p.sy,30+26*Math.sin(this.t*22),0,Math.PI*2); ctx.fillStyle='rgba(215,195,255,.34)'; ctx.fill(); }
+        draw(ctx){ const p=toScreen(this.x,this.y); const k=this.t/this.life; ctx.beginPath(); ctx.arc(p.sx,p.sy,this.r*(1-0.06*Math.sin(this.t*12)),0,Math.PI*2); ctx.fillStyle=`rgba(138,107,255,${0.22*(1-k*0.5)})`; ctx.fill(); ctx.beginPath(); ctx.arc(p.sx,p.sy,36+24*Math.sin(this.t*22),0,Math.PI*2); ctx.fillStyle='rgba(215,195,255,.36)'; ctx.fill(); }
       });
       return true;
     }
 
     if (id==='blades'){
-      effects.push({t:0,life:2.0,tick:0,dead:false,update(dt){
+      effects.push({t:0,life:2.5,tick:0,dead:false,update(dt){
         this.t += dt; this.tick += dt;
         if (this.t>=this.life){ this.dead=true; return; }
-        const blades = 6 + Math.floor(lv*0.5);
+        const blades = 4;
         if (this.tick>=0.08){
           this.tick = 0;
           for (let i=0;i<blades;i++){
-            const a = this.t*6 + (Math.PI*2*i)/blades;
-            const bx = player.x + Math.cos(a)*84;
-            const by = player.y + Math.sin(a)*84;
+            const a = this.t*(4.8 + lv*0.35) + (Math.PI*2*i)/blades;
+            const bx = player.x + Math.cos(a)*96;
+            const by = player.y + Math.sin(a)*96;
             for (const e of enemies){
               if (e.hp<=0) continue;
-              if (dist2(bx,by,e.x,e.y) <= (28+e.r)*(28+e.r)) applyDamage(e, Math.floor((24+lv*7)*dmgScale), {shock:false});
+              if (dist2(bx,by,e.x,e.y) <= (30+e.r)*(30+e.r)) applyDamage(e, Math.floor((24+lv*6)*dmgScale), {shock:false});
             }
           }
         }
       },draw(ctx){
-        const blades = 6 + Math.floor(lv*0.5);
+        const blades = 4;
         for (let i=0;i<blades;i++){
-          const a = this.t*6 + (Math.PI*2*i)/blades;
-          const p = toScreen(player.x + Math.cos(a)*84, player.y + Math.sin(a)*84);
-          ctx.save(); ctx.translate(p.sx,p.sy); ctx.rotate(a); ctx.fillStyle='rgba(255,118,225,.95)'; ctx.fillRect(-12,-3,24,6); ctx.restore();
+          const a = this.t*(4.8 + lv*0.35) + (Math.PI*2*i)/blades;
+          const p = toScreen(player.x + Math.cos(a)*96, player.y + Math.sin(a)*96);
+          ctx.save(); ctx.translate(p.sx,p.sy); ctx.rotate(a); ctx.fillStyle='rgba(255,118,225,.95)'; ctx.fillRect(-14,-3,28,6); ctx.restore();
         }
       }});
       return true;
     }
 
     if (id==='pillars'){
-      const count = 8;
-      const ring = 165;
+      const count = 10;
+      const ring = 178;
       for (let i=0;i<count;i++){
         const ang = (Math.PI*2*i)/count;
-        shadowPillars.push({ x:player.x + Math.cos(ang)*ring, y:player.y + Math.sin(ang)*ring, r:30, life:2.8, maxLife:2.8, t:0, seed:Math.random()*99, dmg:(160+lv*45)*dmgScale, tick:0 });
+        shadowPillars.push({ x:player.x + Math.cos(ang)*ring, y:player.y + Math.sin(ang)*ring, r:34, life:2.6, maxLife:2.6, t:0, seed:Math.random()*99, dmg:(145+lv*42)*dmgScale, tick:0 });
       }
       effects.push({x:player.x,y:player.y,t:0,life:0.4,dead:false,update(dt){this.t+=dt; if(this.t>=this.life)this.dead=true; this.x=player.x; this.y=player.y;},draw(ctx){const p=toScreen(this.x,this.y);const k=this.t/this.life;ctx.beginPath();ctx.arc(p.sx,p.sy,30+190*k,0,Math.PI*2);ctx.strokeStyle=`rgba(77,229,197,${0.9*(1-k)})`;ctx.lineWidth=3;ctx.stroke();}});
       return true;
@@ -3040,14 +3098,14 @@ function closeShop(){
 
         const dx=player.x-e.x, dy=player.y-e.y;
         const len=Math.hypot(dx,dy)||1;
+        e.vx = 0;
+        e.vy = 0;
         if (!hardCrowdControl){
-          e.x += (dx/len)*e.spd*slowMul*dt;
-          e.y += (dy/len)*e.spd*slowMul*dt;
+          e.vx = (dx/len)*e.spd*slowMul;
+          e.vy = (dy/len)*e.spd*slowMul;
         }
         e.x += (e.vx + e.fx)*dt;
         e.y += (e.vy + e.fy)*dt;
-        e.vx *= (1-dt*6.5);
-        e.vy *= (1-dt*6.5);
         const fDrag = e.forceT>0 ? 4.5 : 7.0;
         e.fx *= Math.max(0, 1-dt*fDrag);
         e.fy *= Math.max(0, 1-dt*fDrag);
