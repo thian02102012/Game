@@ -23,7 +23,7 @@
     .title{font-weight:700;letter-spacing:.2px}
     .hint{font-size:12px;color:var(--mut)}
     .wrap{
-      display:grid;grid-template-columns: 280px minmax(320px, 720px) 280px;
+      display:grid;grid-template-columns: 1fr;
       gap:14px;padding:14px;align-items:stretch;
       max-width: 1360px;margin:0 auto;
     }
@@ -68,7 +68,38 @@
       position:fixed;inset:0;display:none;place-items:center;
       background:rgba(0,0,0,.55);z-index:50;padding:14px
     }
+    /* Force black backdrop for Shop & Settings */
+    #shopModal, #settingsModal{ background:#000 !important; }
+
     .modal.show{display:grid}
+
+    /* --- START MENU --- */
+    #startMenu{ background:#000; z-index:200; }
+    #startMenu .modalBox{ width:min(920px, 96vw); border-radius:28px; padding:22px 22px 18px; }
+    .startTitle{ text-align:center; font-weight:900; letter-spacing:2px; font-size:44px; margin:10px 0 4px; color:#f3f6ff; }
+    .startSub{ text-align:center; color:var(--mut); font-size:14px; margin-bottom:18px; }
+    .startBtns{ display:flex; flex-direction:column; gap:14px; margin:10px 0 0; }
+    .startBtn{
+      width:100%;
+      appearance:none;
+      border:1px solid #2b3357;
+      background:linear-gradient(180deg, rgba(124,92,255,.22), rgba(124,92,255,.10));
+      color:var(--txt);
+      padding:18px 18px;
+      border-radius:22px;
+      font-weight:900;
+      font-size:22px;
+      cursor:pointer;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      gap:12px;
+      box-shadow:0 18px 40px rgba(0,0,0,.35), inset 0 0 24px rgba(124,92,255,.12);
+      touch-action:manipulation;
+    }
+    .startBtn:hover{ background:linear-gradient(180deg, rgba(124,92,255,.28), rgba(124,92,255,.12)); }
+    .startBtn:active{ transform:translateY(1px); }
+
     .modalBox{
       width:min(640px,100%);border-radius:18px;border:1px solid var(--stroke);
       background:linear-gradient(180deg,rgba(18,22,36,.95),rgba(12,16,28,.95));
@@ -307,7 +338,7 @@
       display:none !important;
       pointer-events:none !important;
     }
-    body.android-webview #btnRotate{display:flex}
+    body.android-webview #btnRotate{display:none !important}
 
     body.force-landscape .topbar,
     body.force-landscape .ad{display:none}
@@ -332,11 +363,11 @@
 
     body.force-landscape.portrait-viewport .card{
       position:fixed;
-      left:50%;
-      top:50%;
-      width:100vh;
-      height:100vw;
-      transform:translate(-50%, -50%) rotate(90deg);
+      left:0;
+      top:0;
+      width:100vw;
+      height:100vh;
+      transform:none;
       transform-origin:center center;
     }
 
@@ -357,7 +388,12 @@
     }
     .rotateOverlay.show{display:flex}
 
-  </style>
+  
+/* Hide gameplay Shop/Settings (keep elements to avoid JS null crash) */
+#shopBtn,
+#settingsBtn{display:none !important;}
+
+</style>
 </head>
 <body>
   <div class="topbar">
@@ -378,12 +414,7 @@
   </div>
 
   <div class="wrap">
-    <aside class="ad">
-      <b>AD LEFT</b>
-      <div class="hint">Placeholder quảng cáo</div>
-    </aside>
-
-    <main class="card">
+<main class="card">
       <div class="hud">
         <div class="row">
           <div class="pill">HP: <span id="hp">100</span></div>
@@ -412,12 +443,7 @@
         </div>
       </div>
     </main>
-
-    <aside class="ad">
-      <b>AD RIGHT</b>
-      <div class="hint">Placeholder quảng cáo</div>
-    </aside>
-  </div>
+</div>
 
   <!-- LEVEL UP modal -->
   <div class="modal" id="modal">
@@ -487,6 +513,21 @@
     </div>
   </div>
 
+
+  <!-- START MENU -->
+  <div class="modal show" id="startMenu">
+    <div class="modalBox" role="dialog" aria-modal="true" aria-label="Start menu">
+      <div class="startTitle">SURVIVOR</div>
+      <div class="startSub">Infinite Map • Auto Shoot • Boss • Shadow</div>
+      <div class="startBtns">
+        <button class="startBtn" id="startPlay" type="button">▶ Play</button>
+        <button class="startBtn" id="startShop" type="button">🛒 Shop</button>
+        <button class="startBtn" id="startSettings" type="button">⚙ Settings</button>
+        <button class="startBtn" id="startQuit" type="button">✖ Quit</button>
+      </div>
+    </div>
+  </div>
+
 <script>
 function initGame(){
   const cvs = document.getElementById('c');
@@ -550,6 +591,9 @@ function initGame(){
   const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
   const rand = (a,b)=>a+Math.random()*(b-a);
   const SHAKE_ENABLED = false;
+
+  // Screen shake disabled (Android landscape-only build)
+  function addShake(){ /* disabled */ }
   const SEP_LIGHT_THRESHOLD = 420;
   const SEP_DISABLED_THRESHOLD = 720;
   const SEP_BASE_INTERVAL = 2;
@@ -798,6 +842,8 @@ function initGame(){
     await requestLandscape();
     syncLandscapeGuard();
   }
+  // Rotate button disabled in Android landscape-only build
+  if (!ANDROID_WEBVIEW_MODE){
   btnRotate?.addEventListener('click', async (e)=>{
     e.preventDefault();
     e.stopPropagation();
@@ -807,6 +853,9 @@ function initGame(){
       await enableLandscape();
     }
   });
+  }else{
+    if (btnRotate){ btnRotate.style.display = 'none'; btnRotate.disabled = true; }
+  }
 
   addEventListener('pointerdown', (e)=>{
     if (gameOver && e.clientY < innerHeight*0.75) reset();
@@ -1018,7 +1067,7 @@ function initGame(){
   
 function closeShop(){
     ui.shopModal.classList.remove('show');
-    paused = !!isUiBlockingInput();
+    showStartMenu();
   }
 
   // --- Skill system + bottom HUD skill bar ---
@@ -1251,7 +1300,7 @@ function closeShop(){
   function closeSettings(){
     hotkeyBindingSlot = null;
     ui.settingsModal.classList.remove('show');
-    paused = !!isUiBlockingInput();
+    showStartMenu();
   }
 
 
@@ -1403,8 +1452,56 @@ function closeShop(){
     if (e.target === ui.shopModal) closeShop();
   }, {passive:true});
 
+  // --- Start Menu bindings (works on Web + Android) ---
+  let paused = true; // global pause flag (declared early for Start Menu)
+  const startMenuEl = document.getElementById('startMenu');
+  const startPlayBtn = document.getElementById('startPlay');
+  const startShopBtn = document.getElementById('startShop');
+  const startSettingsBtn = document.getElementById('startSettings');
+  const startQuitBtn = document.getElementById('startQuit');
+
+  function hideStartMenu(){ startMenuEl?.classList.remove('show'); }
+  function showStartMenu(){ startMenuEl?.classList.add('show'); paused = true; }
+
+  // Block touches from falling through to the game canvas
+  startMenuEl?.addEventListener('pointerdown', (e)=>{ e.stopPropagation(); }, {passive:false});
+
+  const bindStartBtn = (btn, fn)=>{
+    if (!btn) return;
+    // pointerup is most reliable for touch
+    btn.addEventListener('pointerdown', (e)=>{ e.preventDefault(); e.stopPropagation(); }, {passive:false});
+    btn.addEventListener('pointerup', (e)=>{ e.preventDefault(); e.stopPropagation(); fn(); }, {passive:false});
+    btn.addEventListener('click', (e)=>{ e.preventDefault(); e.stopPropagation(); fn(); }, {passive:false});
+  };
+
+  bindStartBtn(startPlayBtn, ()=>{
+    hideStartMenu();
+    paused = false;
+  });
+
+  bindStartBtn(startShopBtn, ()=>{
+    hideStartMenu();
+    openShop();
+  });
+
+  bindStartBtn(startSettingsBtn, ()=>{
+    hideStartMenu();
+    openSettings();
+  });
+
+  bindStartBtn(startQuitBtn, ()=>{
+    // Web: try close; Android WebView may have navigator.app.exitApp
+    try{
+      if (navigator.app && navigator.app.exitApp) navigator.app.exitApp();
+      else window.close();
+    }catch(_){}
+  });
+
+  // Ensure start menu is visible on boot
+  showStartMenu();
+
   // --- Game state ---
-  let paused=false, gameOver=false;
+  let gameOver=false;
   let nextEnemyScaleT;
 
   const player = { x:0, y:0, r:12, hp:100, maxHp:100, spd:260, iFrames:0 };
@@ -3067,7 +3164,7 @@ function closeShop(){
   }
 
   // Buttons
-  ui.restartBtn.onclick = reset;
+  ui.restartBtn.onclick = ()=>{ try{ reset(); }catch(e){}; try{ showStartMenu(); }catch(e){}; };
 
   // Allow closing level up by picking only
   ui.modal.addEventListener('pointerdown', (e)=>{
