@@ -2,7 +2,7 @@
 <html lang="vi">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <title>Survivor Infinite Map — V2</title>
   <style>
     :root{
@@ -223,6 +223,23 @@
       margin-left:8px;
     }
     .trashBtn:hover{ background:rgba(255,77,109,.10); border-color:rgba(255,77,109,.35); }
+
+    .rarity-common{border-color:#7f879b !important; box-shadow:none !important}
+    .rarity-uncommon{border-color:#46c96f !important}
+    .rarity-rare{border-color:#4ea4ff !important}
+    .rarity-epic{border-color:#9f6dff !important; box-shadow:0 0 18px rgba(159,109,255,.45)}
+    .rarity-legendary{border-color:#ff9b42 !important; box-shadow:0 0 18px rgba(255,155,66,.45)}
+    .rarity-mythic{border-color:#ff4d6d !important; box-shadow:0 0 20px rgba(255,77,109,.8); animation: mythicPulse 1.2s ease-in-out infinite;}
+    @keyframes mythicPulse{0%,100%{filter:saturate(1)}50%{filter:saturate(1.5) brightness(1.15)}}
+    .rarityBadge{font-size:10px;padding:2px 7px;border-radius:999px;border:1px solid rgba(255,255,255,.2);text-transform:uppercase;letter-spacing:.4px}
+    .catBadge{font-size:10px;padding:2px 7px;border-radius:999px;border:1px solid rgba(255,255,255,.18);color:#d9e3ff;background:rgba(255,255,255,.07)}
+    .evoBox{border:1px solid rgba(138,107,255,.45);border-radius:12px;padding:8px;background:rgba(138,107,255,.08)}
+    #confirmModal{backdrop-filter: blur(2px)}
+    #confirmModal .modalBox{transform:scale(.92);opacity:0;transition:transform .18s ease,opacity .18s ease;max-height:85vh;overflow:auto;pointer-events:auto}
+    #confirmModal.show .modalBox{transform:scale(1);opacity:1}
+    .modal .modalBox{max-height:85vh;overflow:auto;pointer-events:auto}
+    .multiPanel{display:grid;gap:10px}
+    .lobbyList{display:grid;gap:6px;margin-top:8px}
 
   
     @media (max-width: 980px){
@@ -514,6 +531,28 @@
   </div>
 
 
+
+
+  <div class="modal" id="multiplayerModal">
+    <div class="modalBox">
+      <h2>Multiplayer</h2>
+      <div class="hint" id="mpStatus">Disconnected</div>
+      <div class="multiPanel">
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn" id="mpCreate">Create Room</button>
+          <input id="mpCode" placeholder="Room code" style="flex:1;min-width:120px;background:#0f1322;color:#fff;border:1px solid #2b3357;border-radius:10px;padding:8px" />
+          <button class="btn" id="mpJoin">Join Room</button>
+        </div>
+        <div class="stat">Room: <b id="mpRoom">-</b></div>
+        <div class="lobbyList" id="mpPlayers"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button class="btn" id="mpStart">Start</button>
+          <button class="btn" id="mpClose">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- START MENU -->
   <div class="modal show" id="startMenu">
     <div class="modalBox" role="dialog" aria-modal="true" aria-label="Start menu">
@@ -521,6 +560,7 @@
       <div class="startSub">Infinite Map • Auto Shoot • Boss • Shadow</div>
       <div class="startBtns">
         <button class="startBtn" id="startPlay" type="button">▶ Play</button>
+        <button class="startBtn" id="startMultiplayer" type="button">🌐 Multiplayer</button>
         <button class="startBtn" id="startShop" type="button">🛒 Shop</button>
         <button class="startBtn" id="startSettings" type="button">⚙ Settings</button>
         <button class="startBtn" id="startQuit" type="button">✖ Quit</button>
@@ -584,6 +624,16 @@ function initGame(){
     shadowHint: document.getElementById('shadowHint'),
     shadowClose: document.getElementById('shadowClose'),
     shadowMerge: document.getElementById('shadowMerge'),
+
+    multiplayerModal: document.getElementById('multiplayerModal'),
+    mpStatus: document.getElementById('mpStatus'),
+    mpCreate: document.getElementById('mpCreate'),
+    mpJoin: document.getElementById('mpJoin'),
+    mpCode: document.getElementById('mpCode'),
+    mpRoom: document.getElementById('mpRoom'),
+    mpPlayers: document.getElementById('mpPlayers'),
+    mpStart: document.getElementById('mpStart'),
+    mpClose: document.getElementById('mpClose'),
 
   };
 
@@ -696,7 +746,7 @@ function initGame(){
   // Input (keyboard)
   const keys = new Set();
   function isUiBlockingInput(){
-    return ui.modal.classList.contains('show') || ui.shopModal.classList.contains('show') || ui.statusModal.classList.contains('show') || ui.settingsModal.classList.contains('show') || ui.confirmModal.classList.contains('show') || ui.shadowModal?.classList.contains('show');
+    return ui.modal?.classList.contains('show') || ui.shopModal?.classList.contains('show') || ui.statusModal?.classList.contains('show') || ui.settingsModal?.classList.contains('show') || ui.confirmModal?.classList.contains('show') || ui.shadowModal?.classList.contains('show') || ui.multiplayerModal?.classList.contains('show');
   }
 
   addEventListener('keydown', e=>{
@@ -1005,9 +1055,10 @@ function initGame(){
             this.tick = 0;
             for (const e of enemies){
               if (e.hp<=0 || dist2(e.x,e.y,this.x,this.y) > this.r*this.r) continue;
-              applyDamage(e, Math.floor(tickDamage), {shock:true});
+              applyDamage(e, Math.floor(tickDamage), {shock:true,element:"lightning"});
             }
           }
+          if (this.t>=this.life && skillEvolutionChoice.vortex === "black_hole_core"){ dealRadialDamage(this.x,this.y,96,Math.floor((120+lv*30)*dmgScale),260,0.25); }
         },
         draw(ctx){
           const p=toScreen(this.x,this.y); const a=1-this.t/this.life;
@@ -1048,11 +1099,11 @@ function initGame(){
             this.zap = 0;
             const inRange = [];
             for (const e of enemies) if (e.hp>0 && dist2(e.x,e.y,this.x,this.y)<=this.r*this.r) inRange.push(e);
-            inRange.sort((a,b)=>dist2(a.x,a.y,this.x,this.y)-dist2(b.x,b.y,this.x,this.y));
+            inRange.sort((a,b)=>{const av=a.status?.inVortex?0:1,bv=b.status?.inVortex?0:1; if(av!==bv) return av-bv; return dist2(a.x,a.y,this.x,this.y)-dist2(b.x,b.y,this.x,this.y);});
             this.arcs.length = 0;
             for (let i=0;i<Math.min(3,inRange.length);i++){
               const e = inRange[i];
-              applyDamage(e, Math.floor(tickDamage), {shock:true});
+              applyDamage(e, Math.floor(tickDamage), {shock:true,element:"gravity"});
               this.arcs.push({x:e.x,y:e.y,jitter:Math.random()*100});
             }
           }
@@ -1085,7 +1136,7 @@ function initGame(){
             for (const e of enemies){
               if (e.hp<=0 || dist2(e.x,e.y,this.x,this.y)>r2) continue;
               const bossBonus = e.isBoss ? 1.7 : 1;
-              applyDamage(e, Math.floor(damage*bossBonus), {shock:true});
+              applyDamage(e, Math.floor(damage*bossBonus), {shock:true,element:"fire",mul:(e.status?.inVortex?1.4:1)});
               const dx = e.x-this.x, dy = e.y-this.y, d = Math.hypot(dx,dy)||1;
               applyEnemyForce(e, (dx/d)*920, (dy/d)*920, 0.5);
             }
@@ -1105,12 +1156,14 @@ function initGame(){
       const r2 = 168*168;
       for (const e of enemies){
         if (e.hp<=0 || dist2(e.x,e.y,x,y)>r2) continue;
-        applyDamage(e, Math.floor(damage), {shock:false});
+        applyDamage(e, Math.floor(damage), {shock:false, element:"frost"});
         e.freeze = Math.max(e.freeze||0, 0.6);
         e.postSlow = Math.max(e.postSlow||0, 2.0);
         e.slow = Math.max(e.slow||0, 0.50);
+        e.status = {...(e.status||{}), frozen:0.6};
       }
       effects.push({x,y,t:0,life:0.75,dead:false,update(dt){this.t+=dt;if(this.t>=this.life)this.dead=true;},draw(ctx){const p=toScreen(this.x,this.y);const k=this.t/this.life;ctx.beginPath();ctx.arc(p.sx,p.sy,26+170*k,0,Math.PI*2);ctx.strokeStyle=`rgba(150,226,255,${0.95*(1-k)})`;ctx.lineWidth=4;ctx.stroke();ctx.beginPath();ctx.arc(p.sx,p.sy,14+130*k,0,Math.PI*2);ctx.strokeStyle=`rgba(220,245,255,${0.65*(1-k)})`;ctx.lineWidth=2;ctx.stroke();}});
+      if (skillEvolutionChoice.frost === 'ice_domain') effects.push({x,y,r:130,t:0,life:4,dead:false,update(dt){this.t+=dt;if(this.t>=this.life)this.dead=true;for(const e of enemies){if(e.hp<=0)continue;if(dist2(e.x,e.y,this.x,this.y)<=this.r*this.r)e.slow=Math.max(e.slow||0,0.35);}},draw(ctx){const p=toScreen(this.x,this.y);ctx.beginPath();ctx.arc(p.sx,p.sy,this.r,0,Math.PI*2);ctx.fillStyle='rgba(140,220,255,.12)';ctx.fill();}});
       return true;
     }
 
@@ -1121,10 +1174,14 @@ function initGame(){
       const used = new Set();
       let cur = target.anchor || getNearestEnemyTo(target.x,target.y);
       let damage = (92 + lv*20) * dmgScale;
-      const jumps = clamp(8 + Math.floor(lv*0.5), 8, 12);
+      let jumps = clamp(8 + Math.floor(lv*0.5), 8, 12);
       for (let i=0;i<jumps && cur;i++){
         chain.push({x:cur.x,y:cur.y});
-        applyDamage(cur, Math.floor(damage), {shock:true});
+        const isFrozen = !!cur.status?.frozen;
+        if (isFrozen) jumps += 2;
+        const chainMul = isFrozen ? 1.1 : 1;
+        applyDamage(cur, Math.floor(damage*chainMul), {shock:true, element:"lightning"});
+        if (skillEvolutionChoice.chain === 'overcharge_mark') cur.status = {...(cur.status||{}), lightningMark:3};
         used.add(cur);
         damage *= 0.85;
         let next = null, bestD2 = 240*240;
@@ -1137,6 +1194,9 @@ function initGame(){
       }
       if (!chain.length) return false;
       effects.push({pts:chain,t:0,life:0.24,dead:false,update(dt){this.t+=dt;if(this.t>=this.life)this.dead=true;},draw(ctx){const a=1-this.t/this.life;ctx.strokeStyle=`rgba(248,255,118,${a})`;ctx.lineWidth=3;ctx.beginPath();for(let i=0;i<this.pts.length;i++){const p=toScreen(this.pts[i].x,this.pts[i].y);if(i===0)ctx.moveTo(p.sx,p.sy);else ctx.lineTo(p.sx,p.sy);}ctx.stroke();}});
+      if (skillEvolutionChoice.chain === "thunderstorm"){
+        effects.push({x:target.x,y:target.y,t:0,life:2,dead:false,hit:0,update(dt){this.t+=dt; if (this.t>=this.life) this.dead=true; if (this.hit<3 && this.t>(this.hit+1)*(this.life/3)){this.hit++; const en=getNearestEnemyTo(this.x+rand(-90,90),this.y+rand(-90,90)); if (en) applyDamage(en, Math.floor((70+lv*16)*dmgScale), {shock:true,element:"lightning"});}},draw(){}});
+      }
       return true;
     }
 
@@ -1152,7 +1212,8 @@ function initGame(){
             const dx=this.x-e.x, dy=this.y-e.y, d=Math.hypot(dx,dy)||1;
             if (d>this.r) continue;
             const s = 1-d/this.r;
-            const pullBase = e.isBoss ? 520 : 860;
+            const coreMul = skillEvolutionChoice.vortex === "black_hole_core" ? 1.4 : 1;
+            const pullBase = (e.isBoss ? 520 : 860) * coreMul;
             const pull = pullBase + s*(e.isBoss?440:980);
             applyEnemyForce(e, (dx/d)*pull, (dy/d)*pull, 0.2);
             if (d < 42){
@@ -1160,7 +1221,9 @@ function initGame(){
               e.y = this.y - (dy/d)*42;
             }
             e.slow = Math.max(e.slow||0, 0.45);
-            if (this.tick>=0.18) applyDamage(e, Math.floor(tickDamage), {shock:true});
+            e.status = {...(e.status||{}), inVortex:0.35};
+            if (skillEvolutionChoice.vortex === 'singularity_prison' && d < 56){ e.stun = Math.max(e.stun||0,0.2); e.status.dmgAmp = 0.3; }
+            if (this.tick>=0.18) applyDamage(e, Math.floor(tickDamage), {shock:true,element:"gravity"});
           }
           if (this.tick>=0.18) this.tick = 0;
         },
@@ -1182,7 +1245,7 @@ function initGame(){
             const by = player.y + Math.sin(a)*96;
             for (const e of enemies){
               if (e.hp<=0) continue;
-              if (dist2(bx,by,e.x,e.y) <= (30+e.r)*(30+e.r)) applyDamage(e, Math.floor((24+lv*6)*dmgScale), {shock:false});
+              if (dist2(bx,by,e.x,e.y) <= (30+e.r)*(30+e.r)) applyDamage(e, Math.floor((24+lv*6)*dmgScale*((player.shield>0||player.shieldT>0)?1.15:1)), {shock:false, element:"physical"});
             }
           }
         }
@@ -1308,21 +1371,31 @@ function closeShop(){
     showStartMenu();
   }
 
-  // --- Skill system + bottom HUD skill bar ---
+  // --- Skill/Weapon unified definitions ---
+  const rarityWeights = {common:60, uncommon:25, rare:10, epic:4, legendary:1, mythic:0.2};
   const skillDefs = {
-    surge:   { name:"Ion Surge", desc:"Blast + ion burn zone DOT 1.5s.", cooldown:10, radius:115, range:320, col:"#65c7ff" },
-    pulse:   { name:"Gravity Pulse", desc:"Shockwave knockback mạnh + stun ngắn.", cooldown:12, radius:130, range:330, col:"#ab7aff" },
-    prism:   { name:"Prism Field", desc:"Field đứng yên, zaps mục tiêu gần nhất.", cooldown:14, radius:88, range:340, col:"#4bffee" },
-    meteor:  { name:"Meteor Drop", desc:"0.6s warning rồi nổ cực mạnh.", cooldown:9, radius:120, range:380, col:"#ff8b64" },
-    frost:   { name:"Frost Nova", desc:"Freeze 0.6s rồi lingering slow 2s.", cooldown:11, radius:120, range:340, col:"#8bd8ff" },
-    chain:   { name:"Arc Chain", desc:"Chain thật, nhảy 10 mục tiêu có falloff.", cooldown:8, radius:210, range:360, col:"#f8ff76" },
-    vortex:  { name:"Gravity Vortex", desc:"Pull liên tục 1.2s + tick damage.", cooldown:13, radius:125, range:360, col:"#8a6bff" },
-    heal:    { name:"Aegis Bloom", desc:"Heal + shield tạm thời 3s.", cooldown:16, radius:118, range:320, col:"#64ffac" },
-    blades:  { name:"Blade Ring", desc:"Blades orbit 2.0s gây DPS liên tục.", cooldown:10, radius:140, range:300, col:"#ff76e1" },
-    pillars: { name:"Energy Pillars", desc:"Triệu hồi vòng trụ năng lượng gây sát thương lớn.", cooldown:20, radius:180, range:340, col:"#4de5c5" },
+    surge:   { id:'surge', name:"Ion Surge", icon:'⚡', type:'skill', category:'tactical', element:'lightning', rarity:'common', tags:['burst','dot'], desc:"Blast + ion burn zone DOT 1.5s.", cooldown:10, radius:115, range:320, col:"#65c7ff" },
+    pulse:   { id:'pulse', name:"Gravity Pulse", icon:'🫧', type:'skill', category:'tactical', element:'gravity', rarity:'uncommon', tags:['cc','stun'], desc:"Shockwave knockback mạnh + stun ngắn.", cooldown:12, radius:130, range:330, col:"#ab7aff" },
+    prism:   { id:'prism', name:"Prism Field", icon:'🔷', type:'skill', category:'tactical', element:'arcane', rarity:'rare', tags:['zone','zap'], desc:"Field đứng yên, zaps mục tiêu gần nhất.", cooldown:14, radius:88, range:340, col:"#4bffee" },
+    meteor:  { id:'meteor', name:"Meteor Drop", icon:'☄️', type:'skill', category:'ultimate', element:'fire', rarity:'epic', tags:['burst','aoe'], desc:"0.6s warning rồi nổ cực mạnh.", cooldown:9, radius:120, range:380, col:"#ff8b64" },
+    frost:   { id:'frost', name:"Frost Nova", icon:'❄️', type:'skill', category:'tactical', element:'frost', rarity:'rare', tags:['cc','slow'], desc:"Freeze 0.6s rồi lingering slow 2s.", cooldown:11, radius:120, range:340, col:"#8bd8ff", evolution:{unlockLevel:5,choices:[{id:'absolute_zero',name:'Absolute Zero',desc:'Kẻ địch đông băng bị đánh sẽ vỡ gây nổ băng.'},{id:'ice_domain',name:'Ice Domain',desc:'Nova để lại vùng băng làm chậm 4s.'}]} },
+    chain:   { id:'chain', name:"Arc Chain", icon:'⛓️', type:'skill', category:'tactical', element:'lightning', rarity:'rare', tags:['chain','burst'], desc:"Chain thật, nhảy 10 mục tiêu có falloff.", cooldown:8, radius:210, range:360, col:"#f8ff76", evolution:{unlockLevel:5,choices:[{id:'thunderstorm',name:'Thunderstorm',desc:'Kết thúc chain gọi 3 tia sét trong 2s.'},{id:'overcharge_mark',name:'Overcharge Mark',desc:'Đánh dấu mục tiêu trong 3s, nhận +20% lightning dmg.'}]} },
+    vortex:  { id:'vortex', name:"Gravity Vortex", icon:'🕳️', type:'skill', category:'ultimate', element:'gravity', rarity:'epic', tags:['cc','pull'], desc:"Pull liên tục 1.2s + tick damage.", cooldown:13, radius:125, range:360, col:"#8a6bff", evolution:{unlockLevel:5,choices:[{id:'black_hole_core',name:'Black Hole Core',desc:'Hút mạnh hơn, kết thúc nổ mạnh gom cụm.'},{id:'singularity_prison',name:'Singularity Prison',desc:'Hút nhẹ nhưng giam chân + tăng 30% sát thương nhận.'}]} },
+    heal:    { id:'heal', name:"Aegis Bloom", icon:'🛡️', type:'skill', category:'passive', element:'arcane', rarity:'uncommon', tags:['heal','shield'], desc:"Heal + shield tạm thời 3s.", cooldown:16, radius:118, range:320, col:"#64ffac" },
+    blades:  { id:'blades', name:"Blade Ring", icon:'🌀', type:'skill', category:'tactical', element:'physical', rarity:'uncommon', tags:['melee','dps'], desc:"Blades orbit 2.0s gây DPS liên tục.", cooldown:10, radius:140, range:300, col:"#ff76e1" },
+    pillars: { id:'pillars', name:"Energy Pillars", icon:'🗼', type:'skill', category:'ultimate', element:'arcane', rarity:'legendary', tags:['summon','aoe'], desc:"Triệu hồi vòng trụ năng lượng gây sát thương lớn.", cooldown:20, radius:180, range:340, col:"#4de5c5" },
   };
-
+  const weaponCatalog = {
+    basic:{id:'basic',name:'Basic',icon:'🔫',type:'weapon',category:'primary',element:'physical',rarity:'common',tags:['auto']},
+    flame:{id:'flame',name:'Flame Aura',icon:'🔥',type:'weapon',category:'support',element:'fire',rarity:'uncommon',tags:['aura','dot']},
+    chain:{id:'chain',name:'Chain Lightning',icon:'⚡',type:'weapon',category:'support',element:'lightning',rarity:'rare',tags:['chain']},
+    freeze:{id:'freeze',name:'Freeze Shot',icon:'🧊',type:'weapon',category:'support',element:'frost',rarity:'uncommon',tags:['cc']},
+    boom:{id:'boom',name:'Boomerang',icon:'🌀',type:'weapon',category:'primary',element:'physical',rarity:'rare',tags:['pierce']},
+    bomb:{id:'bomb',name:'Bomb AOE',icon:'💣',type:'weapon',category:'support',element:'fire',rarity:'epic',tags:['aoe']},
+  };
   const skillLv = Object.fromEntries(Object.keys(skillDefs).map(k=>[k,0]));
+  const skillEvolutionChoice = {};
+  let pendingEvolutionSkill = null;
   const tacticalSlots = { k:null, l:null, semicolon:null, quote:null };
   const skillCooldowns = { k:0, l:0, semicolon:0, quote:0 };
 
@@ -1399,6 +1472,16 @@ function closeShop(){
   }
 
   function screenToWorld(sx, sy){ const W = cvs.width / DPR, H = cvs.height / DPR; return { wx: (sx - W/2) + camera.x, wy: (sy - H/2) + camera.y }; }
+  function deleteSkillById(skillId){
+    if (!skillId || !skillLv.hasOwnProperty(skillId)) return;
+    skillLv[skillId] = 0;
+    delete skillEvolutionChoice[skillId];
+    for (const slot of slotOrder){
+      if (tacticalSlots[slot]===skillId){ tacticalSlots[slot]=null; skillCooldowns[slot]=0; }
+    }
+    updateSkillUI();
+  }
+
   function openStatus(){
     paused = true;
     ui.statusGrid.innerHTML = "";
@@ -1439,8 +1522,9 @@ function closeShop(){
     slotOrder.forEach(hk=>{
       const id = slotSkillId(hk);
       const d = document.createElement('div');
-      d.innerHTML = id ? `${getSlotLabel(hk)}: <b>${skillDefs[id].name}</b> (Lv ${skillLv[id]||0})` : `${getSlotLabel(hk)}: <b>Locked</b>`;
+      d.innerHTML = id ? `${getSlotLabel(hk)}: <b>${skillDefs[id].name}</b> (Lv ${skillLv[id]||0}) <button class="trashBtn" data-del="${id}">🗑</button>` : `${getSlotLabel(hk)}: <b>Locked</b>`;
       list.appendChild(d);
+      d.querySelector('.trashBtn')?.addEventListener('pointerdown',(ev)=>{ev.preventDefault();ev.stopPropagation();openConfirm(`Chắc chắn xóa skill: ${skillDefs[id].name} chứ?`,()=>{deleteSkillById(id);openStatus();});},{passive:false});
     });
 
     const hint = document.createElement('div');
@@ -1655,6 +1739,7 @@ function closeShop(){
   let __pendingDeleteSkill = null;
   function openConfirm(text, onYes){
     paused = true;
+    if (!ui.confirmText || !ui.confirmModal) return;
     ui.confirmText.textContent = text;
     ui.confirmModal.classList.add('show');
     __pendingDeleteSkill = onYes;
@@ -1694,6 +1779,7 @@ function closeShop(){
   let paused = true; // global pause flag (declared early for Start Menu)
   const startMenuEl = document.getElementById('startMenu');
   const startPlayBtn = document.getElementById('startPlay');
+  const startMultiplayerBtn = document.getElementById('startMultiplayer');
   const startShopBtn = document.getElementById('startShop');
   const startSettingsBtn = document.getElementById('startSettings');
   const startQuitBtn = document.getElementById('startQuit');
@@ -1717,6 +1803,8 @@ function closeShop(){
     paused = false;
   });
 
+  bindStartBtn(startMultiplayerBtn, ()=>{ hideStartMenu(); openMP(); });
+
   bindStartBtn(startShopBtn, ()=>{
     hideStartMenu();
     openShop();
@@ -1734,6 +1822,20 @@ function closeShop(){
       else window.close();
     }catch(_){}
   });
+
+
+
+  // --- Multiplayer (host-authoritative, room-based) ---
+  const net = {ws:null,room:'',isHost:false,players:[],seed:0,url:(location.protocol==='https:'?'wss://':'ws://')+(location.hostname||'localhost')+':8080',connected:false};
+  function mpSend(type,payload={}){ try{ if(net.ws&&net.ws.readyState===1) net.ws.send(JSON.stringify({type,...payload})); }catch(_){ } }
+  function renderLobby(){ if(!ui.mpPlayers) return; ui.mpPlayers.innerHTML=''; (net.players||[]).forEach(p=>{const d=document.createElement('div');d.className='stat';d.textContent=(p.host?'👑 ':'')+p.name;ui.mpPlayers.appendChild(d);}); if(ui.mpRoom) ui.mpRoom.textContent=net.room||'-'; if(ui.mpStatus) ui.mpStatus.textContent=net.connected?'Connected':'Disconnected'; if(ui.mpStart) ui.mpStart.style.display=net.isHost?'inline-block':'none'; }
+  function connectMP(){ if(net.ws && (net.ws.readyState===0||net.ws.readyState===1)) return; try{ net.ws=new WebSocket(net.url); }catch(_){ renderLobby(); return; } net.ws.onopen=()=>{net.connected=true; renderLobby();}; net.ws.onclose=()=>{net.connected=false; renderLobby(); setTimeout(connectMP,1200);}; net.ws.onmessage=(ev)=>{ let m={}; try{m=JSON.parse(ev.data);}catch(_){return;} if(m.type==='LOBBY_STATE'){ net.room=m.room||net.room; net.players=m.players||[]; net.isHost=!!m.isHost; renderLobby(); } if(m.type==='START_GAME'){ if (m.seed) Math.seed = m.seed; hideStartMenu(); ui.multiplayerModal?.classList.remove('show'); paused=false; } if(m.type==='PING') mpSend('PONG'); }; }
+  function openMP(){ ui.multiplayerModal?.classList.add('show'); connectMP(); renderLobby(); }
+  ui.mpClose?.addEventListener('click',()=>ui.multiplayerModal?.classList.remove('show'));
+  ui.mpCreate?.addEventListener('click',()=>{connectMP(); mpSend('CREATE_ROOM');});
+  ui.mpJoin?.addEventListener('click',()=>{connectMP(); mpSend('JOIN_ROOM',{room:(ui.mpCode?.value||'').trim().toUpperCase()});});
+  ui.mpStart?.addEventListener('click',()=>{const seed=(Math.random()*1e9)|0; mpSend('SYNC_SEED',{seed,startTime:Date.now(),difficulty:enemyScale.hpMul}); mpSend('START_GAME');});
+  ui.multiplayerModal?.addEventListener('pointerdown',(e)=>{if(e.target===ui.multiplayerModal) ui.multiplayerModal.classList.remove('show');});
 
   // Ensure start menu is visible on boot
   showStartMenu();
@@ -1781,6 +1883,8 @@ function closeShop(){
   // Entities
   const enemies=[], bullets=[], orbs=[], healOrbs=[], particles=[], enemyBullets=[], aoes=[], shadows=[], shadowBullets=[], shadowPillars=[];
   const effects = window.effects || (window.effects = []);
+  let shadowUpgradePoints = 0;
+  const shadowRoleNodes = {striker:["crit","atkspd","fury"],tank:["taunt","drAura","bulk"],support:["healPulse","cdrAura","boon"],controller:["slowAura","miniStun","bind"]};
   const pillarGrid = new Map();
 
   // Global slow field (from skill)
@@ -1874,6 +1978,21 @@ function closeShop(){
     return a.slice(0, count);
   }
 
+  function weightedSample(items, count){
+    const pool = items.slice();
+    const out = [];
+    while (pool.length && out.length<count){
+      let total = 0;
+      for (const it of pool) total += rarityWeights[it.rarity] || 1;
+      let r = Math.random()*total;
+      let idx = 0;
+      for (let i=0;i<pool.length;i++){ r -= (rarityWeights[pool[i].rarity] || 1); if (r<=0){ idx=i; break; } }
+      out.push(pool[idx]);
+      pool.splice(idx,1);
+    }
+    return out;
+  }
+
   function weaponLabel(id){
     if (id==="flame") return "🔥 Flame Aura";
     if (id==="chain") return "⚡ Chain Lightning";
@@ -1888,17 +2007,19 @@ function closeShop(){
   }
 
   function buildWeaponChoices(){
-    return ['flame','chain','freeze','boom','bomb'].map(id=>{
+    return weightedSample(['flame','chain','freeze','boom','bomb'].map(id=>{
       const w = weapons[id];
       const nextLv = Math.min(6, (w.lv||0) + 1);
       return {
         section:'Weapons',
+        rarity: weaponCatalog[id]?.rarity || 'common',
+        category: `${weaponCatalog[id]?.type||'weapon'}/${weaponCatalog[id]?.category||'primary'}`,
         name: weaponLabel(id),
         tag: w.unlocked ? `Upgrade Lv ${w.lv}→${nextLv}` : 'Unlock',
         desc: w.unlocked ? `Weapon upgrade: Lv ${w.lv} → ${nextLv}` : 'Unlock new weapon.',
         apply: ()=>{ w.unlocked = true; w.lv = nextLv; }
       };
-    }).filter(x=>x);
+    }).filter(x=>x), 5);
   }
 
   function buildSkillChoices(){
@@ -1910,6 +2031,8 @@ function closeShop(){
       const nextLv = Math.min(6, Math.max(1, lv+1));
       return {
         section:'Skills',
+        rarity: skillDefs[id].rarity,
+        category: `${skillDefs[id].type}/${skillDefs[id].category}` ,
         name: skillDefs[id].name,
         tag: blocked ? 'Blocked' : (isLearn ? 'Learn' : `Upgrade Lv ${lv}→${nextLv}`),
         desc: blocked ? 'All 4 tactical slots are full.' : `${skillDefs[id].desc} • Lv ${lv} → ${nextLv}`,
@@ -1943,6 +2066,15 @@ function closeShop(){
   let levelUpChoiceArmed = false;
   let levelUpApplied = false;
 
+  function checkEvolutionPending(){
+    pendingEvolutionSkill = null;
+    for (const id of Object.keys(skillDefs)){
+      const def = skillDefs[id];
+      if (!def.evolution || skillEvolutionChoice[id]) continue;
+      if ((skillLv[id]||0) >= (def.evolution.unlockLevel||99)){ pendingEvolutionSkill = id; break; }
+    }
+  }
+
   function openLevelUp(){
     if (ui.modal.classList.contains('show') || isUiBlockingInput()) return;
     paused=true;
@@ -1951,8 +2083,24 @@ function closeShop(){
     ui.choices.innerHTML="";
     setTimeout(()=>{ levelUpChoiceArmed = ui.modal.classList.contains('show'); }, 180);
 
+    checkEvolutionPending();
     const pool = [...buildWeaponChoices(), ...buildSkillChoices(), ...buildStatChoices()];
     const options = pickRandom(pool, Math.min(4, pool.length));
+    if (pendingEvolutionSkill){
+      const evDef = skillDefs[pendingEvolutionSkill];
+      const evChoices = evDef?.evolution?.choices || [];
+      ui.choices.innerHTML = `<div class="hint" style="font-weight:800">Chọn tiến hóa cho: ${evDef.name}</div>`;
+      evChoices.forEach(ch=>{
+        const row=document.createElement('button');
+        row.type='button';
+        row.className=`choice rarity-${evDef.rarity||'common'} evoBox`;
+        row.innerHTML=`<div class="name"><span>${ch.name}</span><span style="display:flex;gap:6px"><span class="rarityBadge">${evDef.rarity}</span><span class="catBadge">Evolution</span></span></div><div class="desc">${ch.desc}</div>`;
+        row.addEventListener('pointerup',(ev)=>{ev.preventDefault();ev.stopPropagation(); skillEvolutionChoice[pendingEvolutionSkill]=ch.id; pendingEvolutionSkill=null; levelUpApplied=true; levelUpChoiceArmed=false; ui.modal.classList.remove('show'); paused=!!isUiBlockingInput(); updateSkillUI();},{passive:false});
+        ui.choices.appendChild(row);
+      });
+      ui.modal.classList.add('show');
+      return;
+    }
 
     const sections = ['Weapons','Skills','Stats'];
     sections.forEach(section=>{
@@ -1974,11 +2122,13 @@ function closeShop(){
         secItems.forEach(u=>{
           const row=document.createElement('button');
           row.type = 'button';
-          row.className='choice';
+          row.className=`choice rarity-${u.rarity||'common'}`;
           row.disabled = !!u.disabled;
           row.style.opacity = u.disabled ? '0.45' : '1';
           const tag = `<span class="tag">${u.tag}</span>`;
-          row.innerHTML=`<div class="name"><span>${u.name}</span>${tag}</div><div class="desc">${u.desc}</div>`;
+          const rarity = `<span class="rarityBadge">${u.rarity||'common'}</span>`;
+          const cat = `<span class="catBadge">${u.category||u.section}</span>`;
+          row.innerHTML=`<div class="name"><span>${u.name}</span><span style="display:flex;gap:6px">${rarity}${cat}${tag}</span></div><div class="desc">${u.desc}</div>`;
           row.addEventListener('pointerup', (ev)=>{
             ev.preventDefault();
             ev.stopPropagation();
@@ -2006,6 +2156,7 @@ function closeShop(){
     while (leveling.xp >= leveling.need){
       leveling.xp -= leveling.need;
       leveling.lv += 1;
+      if (leveling.lv % 5 === 0) shadowUpgradePoints += 1;
       player.hp = player.maxHp;
       if (leveling.lv % 3 === 0){
         enemyScale.hpMul *= 1.06;
@@ -2142,7 +2293,8 @@ function closeShop(){
     hp = Math.floor(hp * enemyScale.hpMul);
     spd = spd * enemyScale.spdMul;
     dmg = Math.floor(dmg * enemyScale.dmgMul);
-    enemies.push({x:ex,y:ey,r,hp,maxHp:hp,spd,dmg,val,type,shield,slow,cd,isBoss,fx:0,fy:0,forceT:0});
+    const resist={arcane:1+rand(-0.1,0.1),lightning:1+rand(-0.1,0.1),frost:1+rand(-0.1,0.1),fire:1+rand(-0.1,0.1),gravity:1+rand(-0.1,0.1),physical:1+rand(-0.1,0.1)};
+    enemies.push({x:ex,y:ey,r,hp,maxHp:hp,spd,dmg,val,type,shield,slow,cd,isBoss,fx:0,fy:0,forceT:0,resist,status:{}});
   }
 
   // Boss
@@ -2154,7 +2306,8 @@ function closeShop(){
     const ex = player.x + Math.cos(ang)*dist;
     const ey = player.y + Math.sin(ang)*dist;
     const hp = Math.floor((320 + stats.t*1.2) * enemyScale.hpMul);
-    const boss = {x:ex,y:ey,r:26,hp,maxHp:hp,spd:68*enemyScale.spdMul,dmg:Math.floor(18*enemyScale.dmgMul),val:18,type:"boss",shield:0,slow:0,cd:1.3,isBoss:true,bossType:"Boss", dashCd:2.8, tpCd:5.0, orbCd:1.8, sumCd:3.0,fx:0,fy:0,forceT:0};
+    const bossRes={arcane:1,lightning:1,frost:1,fire:1,gravity:1,physical:1}; const keys=["arcane","lightning","frost","fire","gravity","physical"]; keys.sort(()=>Math.random()-0.5); bossRes[keys[0]]=0.6; bossRes[keys[1]]=0.7; bossRes[keys[2]]=1.25;
+    const boss = {x:ex,y:ey,r:26,hp,maxHp:hp,spd:68*enemyScale.spdMul,dmg:Math.floor(18*enemyScale.dmgMul),val:18,type:"boss",shield:0,slow:0,cd:1.3,isBoss:true,bossType:"Boss", dashCd:2.8, tpCd:5.0, orbCd:1.8, sumCd:3.0,fx:0,fy:0,forceT:0,resist:bossRes,weakness:keys[2],status:{}};
     enemies.push(boss);
     beep(160,0.16,"sawtooth",0.10);
   }
@@ -2304,7 +2457,7 @@ function closeShop(){
       if (!cur) break;
       hit.add(cur);
       // damage + particles
-      applyDamage(cur, dmg, {shock:true});
+      applyDamage(cur, dmg, {shock:true,element:"lightning"});
       // pick next nearest not hit
       let next=null, bd=1e18;
       for (const e of enemies){
@@ -2336,7 +2489,12 @@ function closeShop(){
   // Damage helpers (shield + slow)
   function applyDamage(e, dmg, fx={}){
     if (!e || e._dead) return;
-    let dd = dmg;
+    const element = fx.element || "physical";
+    const resist = (e.resist && Number.isFinite(e.resist[element])) ? e.resist[element] : 1;
+    let dd0 = dmg * resist * (fx.mul||1);
+    if (e.status?.dmgAmp) dd0 *= (1 + e.status.dmgAmp);
+
+    let dd = Math.max(0, Math.floor(dd0));
     if (e.shield>0){
       const s = Math.min(e.shield, dd);
       e.shield -= s;
@@ -2412,6 +2570,8 @@ function closeShop(){
       pillarCd: 1.2 + Math.random()*1.8,
       orbitSeed: Math.random()*Math.PI*2,
       orbitIndex: shadows.length,
+      role: boss.role || null,
+      upgrades: {},
       vx:0, vy:0,
       col: "rgba(40,120,220,0.95)", // dark blue
       ring: "rgba(30,90,190,0.35)"
@@ -3017,6 +3177,7 @@ function closeShop(){
 
       // enemies chase + special behaviors
       for (const e of enemies){
+        if (e.status){ for (const key of Object.keys(e.status)){ e.status[key] -= dt; if (e.status[key] <= 0) delete e.status[key]; } }
         e.vx = e.vx || 0;
         e.vy = e.vy || 0;
         e.fx = e.fx || 0;
@@ -3471,6 +3632,23 @@ if (document.readyState === "loading") {
 } else {
   initGame();
 }
+
+/*
+Node.js ws server snippet (room-based):
+const WebSocket=require('ws');
+const wss=new WebSocket.Server({port:8080});
+const rooms=new Map();
+const id=()=>Math.random().toString(36).slice(2,8).toUpperCase();
+wss.on('connection',ws=>{ws.pid=id();ws.on('message',raw=>{let m={};try{m=JSON.parse(raw);}catch{return;}
+if(m.type==='CREATE_ROOM'){const room=id();rooms.set(room,{host:ws,players:[ws]});ws.room=room;ws.send(JSON.stringify({type:'LOBBY_STATE',room,isHost:true,players:[{name:ws.pid,host:true}]}));}
+if(m.type==='JOIN_ROOM'){const r=rooms.get(m.room);if(!r)return; r.players.push(ws); ws.room=m.room; const players=r.players.map(p=>({name:p.pid,host:p===r.host})); for(const p of r.players)p.send(JSON.stringify({type:'LOBBY_STATE',room:m.room,isHost:p===r.host,players}));}
+if(m.type==='START_GAME'&&ws.room){const r=rooms.get(ws.room); if(r&&ws===r.host) for(const p of r.players)p.send(JSON.stringify({type:'START_GAME'}));}
+if((m.type==='INPUT'||m.type==='CAST_SKILL'||m.type==='SPAWN_EVENT'||m.type==='SYNC_SEED')&&ws.room){const r=rooms.get(ws.room); if(r) for(const p of r.players) if(p!==ws) p.send(raw.toString());}
+if(m.type==='PING') ws.send(JSON.stringify({type:'PONG'}));
+});
+ws.on('close',()=>{const r=rooms.get(ws.room);if(!r)return;r.players=r.players.filter(p=>p!==ws);if(!r.players.length)rooms.delete(ws.room);});});
+*/
+
 </script>
 
 
