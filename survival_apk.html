@@ -12,10 +12,10 @@
       --good:#45f7a1; --bad:#ff4d6d; --warn:#ffd166;
     }
     *{box-sizing:border-box}
-    html,body{margin:0;height:100%;overflow:hidden;touch-action:none}
+    html,body{margin:0;width:100%;height:100%;overflow:hidden;overscroll-behavior:none;touch-action:none}
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:linear-gradient(180deg,#070811,#0b0d12);color:var(--txt);min-height:100vh;min-height:100dvh;overflow:hidden}
     .topbar{
-      position:sticky;top:0;z-index:5;
+      position:fixed;top:0;left:0;right:0;z-index:5;
       display:flex;align-items:center;justify-content:space-between;
       padding:10px 14px;border-bottom:1px solid var(--stroke);
       background:rgba(10,12,18,.85);backdrop-filter:blur(10px);
@@ -28,7 +28,6 @@
       position:fixed;
       inset:0;
       width:100vw;
-      height:100vh;
       height:100dvh;
       display:grid;grid-template-columns: 1fr;
       gap:0;padding:0;align-items:stretch;
@@ -37,8 +36,8 @@
     }
 
     /* Layout: synced heights (desktop) */
-    .wrap{ min-height: 100vh; min-height:100dvh; }
-    .card{ height: 100vh; height:100dvh; display:flex; flex-direction:column; border-radius:0; border:none; }
+    .wrap{ min-height:100dvh; padding-top:62px; }
+    .card{ height:calc(100dvh - 62px); display:flex; flex-direction:column; border-radius:0; border:none; }
     .ad{ height: calc(100vh - 62px - 28px); }
     .hud{ flex:0 0 auto; }
     canvas{ flex:1 1 auto; height:100% !important; width:100%; }
@@ -74,13 +73,13 @@
     .btn:active{transform:translateY(1px)}
     .modal{
       position:fixed;inset:0;display:none;place-items:center;
-      background:rgba(0,0,0,.92);z-index:9999;padding:12px;pointer-events:auto
+      background:rgba(0,0,0,.92);z-index:9999;padding:12px;pointer-events:none
     }
     /* Force black backdrop for Shop & Settings */
     #shopModal, #settingsModal, #multiplayerModal{ background:#000 !important; }
     #multiplayerModal{ background:rgba(0,0,0,.92) !important; }
 
-    .modal.show{display:grid}
+    .modal.show{display:grid;pointer-events:auto}
 
     /* --- START MENU --- */
     #startMenu{ background:#000; z-index:200; }
@@ -259,13 +258,13 @@
       body{ overflow:hidden; }
       .wrap{ grid-template-columns: 1fr; }
       .ad{ position:relative; top:auto; height:auto; min-height:260px; }
-      .card{ height:100vh; height:100dvh; }
+      .card{ height:calc(100dvh - 62px); }
       canvas{ height:100% !important; }
     }
 
-    .topbar,
+    #gameOverlayUI,
     .hud,
-    .gameOverlayUI{
+    .topbar{
       transform:scale(var(--uiScale));
       transform-origin:top left;
     }
@@ -594,20 +593,27 @@ function initGame(){
   const cvs = document.getElementById('c');
   const ctx = cvs.getContext('2d');
   const gameViewport = document.getElementById('gameViewport');
+  const uiRoot = document.getElementById('gameOverlayUI');
+  const DESIGN_W = 1280;
+  const DESIGN_H = 720;
 
   function applyUIScale(){
-    const base = Math.min(window.innerWidth / 1280, window.innerHeight / 720);
-    const s = Math.max(0.82, Math.min(base, 1));
+    const base = Math.min(window.innerWidth / DESIGN_W, window.innerHeight / DESIGN_H);
+    const s = Math.max(0.78, Math.min(base, 1));
     document.documentElement.style.setProperty('--uiScale', String(s));
+    if (uiRoot){
+      uiRoot.style.transform = `scale(${s})`;
+      uiRoot.style.transformOrigin = 'top left';
+    }
   }
 
   // Adaptive canvas scaling (mobile-friendly)
   function resizeCanvas(){
     const dpr = Math.min(2, window.devicePixelRatio || 1);
-    const rect = (gameViewport || cvs).getBoundingClientRect();
-    const w = Math.max(320, Math.floor(rect.width));
-    // Match the real on-screen height to avoid stretched graphics
-    const h = Math.max(320, Math.floor(rect.height || rect.width));
+    const w = Math.max(320, Math.floor(window.innerWidth));
+    const h = Math.max(320, Math.floor(window.innerHeight));
+    cvs.style.width = `${w}px`;
+    cvs.style.height = `${h}px`;
     cvs.width = Math.floor(w * dpr);
     cvs.height = Math.floor(h * dpr);
     ctx.setTransform(dpr,0,0,dpr,0,0);
@@ -670,7 +676,7 @@ function initGame(){
 
   const dist2 = (ax,ay,bx,by)=>{const dx=ax-bx,dy=ay-by; return dx*dx+dy*dy;};
   const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
-  const rand = (a,b)=>a+Math.random()*(b-a);
+  const rand = (a,b)=>a+rng()*(b-a);
   let rngSeedState = 0x12345678;
   function setRNGSeed(seed){
     let n = (seed >>> 0) || 1;
@@ -790,7 +796,7 @@ function initGame(){
   // Input (keyboard)
   const keys = new Set();
   function isUiBlockingInput(){
-    return ui.modal?.classList.contains('show') || ui.shopModal?.classList.contains('show') || ui.statusModal?.classList.contains('show') || ui.settingsModal?.classList.contains('show') || ui.confirmModal?.classList.contains('show') || ui.shadowModal?.classList.contains('show') || ui.multiplayerModal?.classList.contains('show');
+    return isAnyModalOpen() || gameState !== 'PLAYING';
   }
 
   addEventListener('keydown', e=>{
@@ -875,7 +881,7 @@ function initGame(){
   joyTarget.addEventListener('pointerdown', (e)=>{
     if (e.pointerType !== 'touch' && e.pointerType !== 'pen') return;
     if (joyWrap.style.display === 'none') return;
-    if (isUiBlockingInput()) return;
+    if (isAnyModalOpen() || gameState !== 'PLAYING') return;
     e.preventDefault();
     beginJoy(e.pointerId, e.clientX, e.clientY);
     joyTarget.setPointerCapture?.(e.pointerId);
@@ -883,6 +889,7 @@ function initGame(){
 
   joyTarget.addEventListener('pointermove', (e)=>{
     if (!joy.active || e.pointerId !== joy.id) return;
+    if (isAnyModalOpen() || gameState !== 'PLAYING') return;
     e.preventDefault();
     setStick(e.clientX - joy.cx, e.clientY - joy.cy);
   }, {passive:false});
@@ -899,7 +906,7 @@ function initGame(){
   addEventListener('blur', endJoy, {passive:true});
   addEventListener('visibilitychange', ()=>{ if (document.hidden) endJoy(); }, {passive:true});
 
-  btnRestart?.addEventListener('click', ()=>{ if (gameOver) reset(); });
+  btnRestart?.addEventListener('click', ()=>{ enterMenu(); });
   btnFS?.addEventListener('click', async ()=>{
     try{
       if (!document.fullscreenElement){
@@ -952,7 +959,10 @@ function initGame(){
   }
 
   addEventListener('pointerdown', (e)=>{
-    if (gameOver && e.clientY < innerHeight*0.75) reset();
+    if (gameState === 'PLAYING' && gameOver && e.clientY < innerHeight*0.75){
+      reset();
+      enterMenu();
+    }
   }, {passive:true});
 
   function getMove(){
@@ -1309,7 +1319,7 @@ function initGame(){
       const ring = 178;
       for (let i=0;i<count;i++){
         const ang = (Math.PI*2*i)/count;
-        shadowPillars.push({ x:player.x + Math.cos(ang)*ring, y:player.y + Math.sin(ang)*ring, r:34, life:2.6, maxLife:2.6, t:0, seed:Math.random()*99, dmg:(145+lv*42)*dmgScale, tick:0 });
+        shadowPillars.push({ x:player.x + Math.cos(ang)*ring, y:player.y + Math.sin(ang)*ring, r:34, life:2.6, maxLife:2.6, t:0, seed:rng()*99, dmg:(145+lv*42)*dmgScale, tick:0 });
       }
       effects.push({x:player.x,y:player.y,t:0,life:0.4,dead:false,update(dt){this.t+=dt; if(this.t>=this.life)this.dead=true; this.x=player.x; this.y=player.y;},draw(ctx){const p=toScreen(this.x,this.y);const k=this.t/this.life;ctx.beginPath();ctx.arc(p.sx,p.sy,30+190*k,0,Math.PI*2);ctx.strokeStyle=`rgba(77,229,197,${0.9*(1-k)})`;ctx.lineWidth=3;ctx.stroke();}});
       return true;
@@ -1373,7 +1383,7 @@ function initGame(){
   function setCoins(v){ localStorage.setItem(COIN_KEY, String(Math.max(0, Math.floor(v)))); ui.coins.textContent=String(getCoins()); }
 
   function openShop(){
-    paused = true;
+    enterPausedUI();
     ui.shopGrid.innerHTML = "";
     const perm = loadPerm();
     const coins = getCoins();
@@ -1412,7 +1422,7 @@ function initGame(){
   
 function closeShop(){
     ui.shopModal.classList.remove('show');
-    showStartMenu();
+    enterMenu();
   }
 
   // --- Skill/Weapon unified definitions ---
@@ -1553,7 +1563,7 @@ function closeShop(){
   }
 
   function openStatus(){
-    paused = true;
+    enterPausedUI();
     ui.statusGrid.innerHTML = "";
 
     const s1 = document.createElement('div');
@@ -1620,7 +1630,8 @@ function closeShop(){
   }
   function closeStatus(){
     ui.statusModal.classList.remove('show');
-    paused = !!isUiBlockingInput();
+    if (isAnyModalOpen()) enterPausedUI();
+    else enterMenu();
   }
   ui.statusClose && (ui.statusClose.onclick = closeStatus);
   ui.statusModal && ui.statusModal.addEventListener('pointerdown', (e)=>{
@@ -1686,13 +1697,13 @@ function closeShop(){
   function openSettings(){
     hotkeyBindingSlot = null;
     renderSettings();
-    paused = true;
+    enterPausedUI();
     ui.settingsModal.classList.add('show');
   }
   function closeSettings(){
     hotkeyBindingSlot = null;
     ui.settingsModal.classList.remove('show');
-    showStartMenu();
+    enterMenu();
   }
 
 
@@ -1709,8 +1720,8 @@ function closeShop(){
 
   function openShadowInv(){
     if (!canUseShadowInv()) return;
-    paused = true;
-    ui.shadowModal.classList.add('show');
+    enterPausedUI();
+    ui.shadowModal?.classList?.add('show');
     renderShadowInv();
   }
   function closeShadowInv(){
@@ -1720,7 +1731,7 @@ function closeShop(){
   }
   function toggleShadowInv(){
     if (!canUseShadowInv()) return;
-    if (ui.shadowModal.classList.contains('show')) closeShadowInv();
+    if (ui.shadowModal?.classList?.contains('show')) closeShadowInv();
     else openShadowInv();
   }
 
@@ -1808,7 +1819,7 @@ function closeShop(){
   // --- Confirm modal (delete skill) ---
   let __pendingDeleteSkill = null;
   function openConfirm(text, onYes){
-    paused = true;
+    enterPausedUI();
     if (!ui.confirmText || !ui.confirmModal) return;
     ui.confirmText.textContent = text;
     ui.confirmModal.classList.add('show');
@@ -1822,11 +1833,13 @@ function closeShop(){
     if (__pendingDeleteSkill) __pendingDeleteSkill();
     closeConfirm();
     if (ui.statusModal.classList.contains('show')) openStatus();
-    paused = ui.statusModal.classList.contains('show') || ui.shopModal.classList.contains('show') || ui.modal.classList.contains('show');
+    if (isAnyModalOpen()) enterPausedUI();
+    else enterMenu();
   };
   ui.confirmNo.onclick = ()=>{
     closeConfirm();
-    paused = ui.statusModal.classList.contains('show') || ui.shopModal.classList.contains('show') || ui.modal.classList.contains('show');
+    if (isAnyModalOpen()) enterPausedUI();
+    else enterMenu();
   };
   ui.confirmModal.addEventListener('pointerdown', (e)=>{
     if (e.target === ui.confirmModal){ ui.confirmNo.click(); }
@@ -1847,6 +1860,9 @@ function closeShop(){
 
   // --- Start Menu bindings (works on Web + Android) ---
   let paused = true; // global pause flag (declared early for Start Menu)
+  let gameState = 'MENU';
+  let worldInitialized = false;
+  let loopStarted = false;
   const startMenuEl = document.getElementById('startMenu');
   const startPlayBtn = document.getElementById('startPlay');
   const startMultiplayerBtn = document.getElementById('startMultiplayer');
@@ -1855,7 +1871,51 @@ function closeShop(){
   const startQuitBtn = document.getElementById('startQuit');
 
   function hideStartMenu(){ startMenuEl?.classList.remove('show'); }
-  function showStartMenu(){ startMenuEl?.classList.add('show'); paused = true; }
+  function showStartMenu(){ startMenuEl?.classList.add('show'); }
+  function isAnyModalOpen(){
+    return ui.modal?.classList.contains('show') || ui.shopModal?.classList.contains('show') || ui.statusModal?.classList.contains('show') || ui.settingsModal?.classList.contains('show') || ui.confirmModal?.classList.contains('show') || ui.shadowModal?.classList.contains('show') || ui.multiplayerModal?.classList.contains('show');
+  }
+  function hideAllOtherModals(){
+    ui.modal?.classList.remove('show');
+    ui.shopModal?.classList.remove('show');
+    ui.statusModal?.classList.remove('show');
+    ui.settingsModal?.classList.remove('show');
+    ui.confirmModal?.classList.remove('show');
+    ui.shadowModal?.classList.remove('show');
+    ui.multiplayerModal?.classList.remove('show');
+  }
+  function closeAllModals(){
+    hideAllOtherModals();
+    mpEnabled = false;
+    closeMPSocket();
+  }
+  function ensureLoopRunning(){
+    if (loopStarted) return;
+    loopStarted = true;
+    last = performance.now();
+    requestAnimationFrame(tick);
+  }
+  function ensureGameInitialized(){
+    if (!worldInitialized || gameOver) reset();
+  }
+  function enterMenu(){
+    gameState = 'MENU';
+    paused = true;
+    showStartMenu();
+    hideAllOtherModals();
+  }
+  function enterPausedUI(){
+    gameState = 'PAUSED_UI';
+    paused = true;
+  }
+  function enterPlaying(){
+    gameState = 'PLAYING';
+    hideStartMenu();
+    closeAllModals();
+    paused = false;
+    ensureGameInitialized();
+    ensureLoopRunning();
+  }
 
   // Block touches from falling through to the game canvas
   startMenuEl?.addEventListener('pointerdown', (e)=>{ e.stopPropagation(); }, {passive:false});
@@ -1869,23 +1929,23 @@ function closeShop(){
   };
 
   bindStartBtn(startPlayBtn, ()=>{
-    hideStartMenu();
-    paused = false;
+    if (gameOver || !worldInitialized) reset();
+    enterPlaying();
   });
 
   bindStartBtn(startMultiplayerBtn, ()=>{
-    paused = true;
-    showStartMenu();
     openMP();
   });
 
   bindStartBtn(startShopBtn, ()=>{
-    hideStartMenu();
+    enterPausedUI();
+    showStartMenu();
     openShop();
   });
 
   bindStartBtn(startSettingsBtn, ()=>{
-    hideStartMenu();
+    enterPausedUI();
+    showStartMenu();
     openSettings();
   });
 
@@ -2093,15 +2153,13 @@ function closeShop(){
     if (mpState.startTime){
       stats.t = Math.max(0, (Date.now() - mpState.startTime) / 1000);
     }
-    last = performance.now();
-    hideStartMenu();
     ui.multiplayerModal?.classList.remove('show');
     mpEnabled = false;
-    paused=false;
+    enterPlaying();
   }
 
   function openMP(){
-    paused = true;
+    enterPausedUI();
     showStartMenu();
     mpEnabled = true;
     ui.multiplayerModal?.classList.add('show');
@@ -2110,12 +2168,11 @@ function closeShop(){
   }
 
   function closeMP(){
-    paused = true;
-    showStartMenu();
     ui.multiplayerModal?.classList.remove('show');
     mpEnabled = false;
     closeMPSocket();
     renderLobby();
+    enterMenu();
   }
 
   ui.mpClose?.addEventListener('click',closeMP);
@@ -2131,7 +2188,7 @@ function closeShop(){
   });
   ui.mpStart?.addEventListener('click',()=>{
     if (!net.isHost) return;
-    const seed=(Math.random()*1e9)|0;
+    const seed=(rng()*1e9)|0;
     const startTime=Date.now();
     const difficulty=enemyScale.hpMul;
     mpState.seed = seed;
@@ -2142,9 +2199,8 @@ function closeShop(){
     tryStartMPGame();
   });
 
-  ui.multiplayerModal?.addEventListener('pointerdown',(e)=>{ if(e.target===ui.multiplayerModal) closeMP(); }, {passive:false});
-  ui.multiplayerModal?.addEventListener('pointerdown',(e)=>{ e.stopPropagation(); }, {passive:false});
-  ui.multiplayerModal?.querySelector('.modalBox')?.addEventListener('pointerdown',(e)=>{ e.stopPropagation(); }, {passive:false});
+  ui.multiplayerModal?.addEventListener('pointerdown',(e)=>{ if(e.target===ui.multiplayerModal) closeMP(); }, {passive:true});
+  ui.multiplayerModal?.querySelector('.modalBox')?.addEventListener('pointerdown',(e)=>{ e.stopPropagation(); }, {passive:true});
   addEventListener('keydown', (e)=>{
     if (mpEnabled && ui.multiplayerModal?.classList.contains('show')){
       e.stopPropagation();
@@ -2155,7 +2211,7 @@ function closeShop(){
   }, {passive:false});
 
   // Ensure start menu is visible on boot
-  showStartMenu();
+  enterMenu();
 
   // --- Game state ---
   let gameOver=false;
@@ -2491,7 +2547,7 @@ function closeShop(){
       const ang = (Math.PI*2*i)/SHADOW_PILLAR_COUNT + (sh.orbitSeed||0);
       const px = sh.x + Math.cos(ang) * SHADOW_PILLAR_RING;
       const py = sh.y + Math.sin(ang) * SHADOW_PILLAR_RING;
-      shadowPillars.push({ x:px, y:py, r:SHADOW_PILLAR_RADIUS, life:SHADOW_PILLAR_LIFE, maxLife:SHADOW_PILLAR_LIFE, t:0, seed:Math.random()*99 });
+      shadowPillars.push({ x:px, y:py, r:SHADOW_PILLAR_RADIUS, life:SHADOW_PILLAR_LIFE, maxLife:SHADOW_PILLAR_LIFE, t:0, seed:rng()*99 });
     }
     beep(700,0.07,'sine',0.05);
   }
@@ -3315,7 +3371,7 @@ function closeShop(){
 
   // Pause on tab out (mobile optimization)
   addEventListener('visibilitychange', ()=>{
-    if (document.hidden) paused = true;
+    if (document.hidden && gameState === 'PLAYING') enterPausedUI();
   });
 
   updateSkillUI();
@@ -3894,7 +3950,8 @@ function closeShop(){
   }
 
   function reset(){
-    paused=false; gameOver=false;
+    gameOver=false;
+    worldInitialized = true;
     syncLandscapeGuard();
     ui.modal.classList.remove('show');
     ui.shopModal.classList.remove('show');
@@ -3948,7 +4005,7 @@ function closeShop(){
   }
 
   // Buttons
-  ui.restartBtn.onclick = ()=>{ try{ reset(); }catch(e){}; try{ showStartMenu(); }catch(e){}; };
+  ui.restartBtn.onclick = ()=>{ enterMenu(); };
 
   // Allow closing level up by picking only
   ui.modal.addEventListener('pointerdown', (e)=>{
@@ -3958,7 +4015,7 @@ function closeShop(){
 
   // Start
   reset();
-  requestAnimationFrame(tick);
+  enterMenu();
 }
 
 if (document.readyState === "loading") {
