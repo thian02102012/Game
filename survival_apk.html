@@ -6,12 +6,14 @@
   <title>Survivor Infinite Map — V2</title>
   <style>
     :root{
+      --uiScale:1;
       --txt:#e8ecff; --mut:#9aa3c7;
       --stroke:#232a45; --accent:#7c5cff;
       --good:#45f7a1; --bad:#ff4d6d; --warn:#ffd166;
     }
     *{box-sizing:border-box}
-    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:linear-gradient(180deg,#070811,#0b0d12);color:var(--txt);min-height:100vh;overflow:hidden}
+    html,body{margin:0;height:100%;overflow:hidden;touch-action:none}
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:linear-gradient(180deg,#070811,#0b0d12);color:var(--txt);min-height:100vh;min-height:100dvh;overflow:hidden}
     .topbar{
       position:sticky;top:0;z-index:5;
       display:flex;align-items:center;justify-content:space-between;
@@ -23,14 +25,20 @@
     .title{font-weight:700;letter-spacing:.2px}
     .hint{font-size:12px;color:var(--mut)}
     .wrap{
+      position:fixed;
+      inset:0;
+      width:100vw;
+      height:100vh;
+      height:100dvh;
       display:grid;grid-template-columns: 1fr;
-      gap:14px;padding:14px;align-items:stretch;
-      max-width: 1360px;margin:0 auto;
+      gap:0;padding:0;align-items:stretch;
+      max-width:none;margin:0;
+      overflow:hidden;
     }
 
     /* Layout: synced heights (desktop) */
-    .wrap{ min-height: calc(100vh - 62px - 28px); } /* topbar + padding */
-    .card{ height: calc(100vh - 62px - 28px); display:flex; flex-direction:column; }
+    .wrap{ min-height: 100vh; min-height:100dvh; }
+    .card{ height: 100vh; height:100dvh; display:flex; flex-direction:column; border-radius:0; border:none; }
     .ad{ height: calc(100vh - 62px - 28px); }
     .hud{ flex:0 0 auto; }
     canvas{ flex:1 1 auto; height:100% !important; width:100%; }
@@ -66,7 +74,7 @@
     .btn:active{transform:translateY(1px)}
     .modal{
       position:fixed;inset:0;display:none;place-items:center;
-      background:rgba(0,0,0,.55);z-index:50;padding:14px
+      background:rgba(0,0,0,.92);z-index:9999;padding:12px;pointer-events:auto
     }
     /* Force black backdrop for Shop & Settings */
     #shopModal, #settingsModal, #multiplayerModal{ background:#000 !important; }
@@ -105,6 +113,10 @@
       width:min(640px,100%);border-radius:18px;border:1px solid var(--stroke);
       background:linear-gradient(180deg,rgba(18,22,36,.95),rgba(12,16,28,.95));
       padding:14px;box-shadow: 0 20px 60px rgba(0,0,0,.5);
+      max-height:calc(100vh - 24px);
+      max-height:calc(100dvh - 24px);
+      overflow:auto;
+      pointer-events:auto;
     }
     .modalBox h2{margin:0 0 8px;font-size:18px}
     .choices{display:grid;gap:10px;margin-top:10px}
@@ -238,17 +250,24 @@
     #confirmModal{backdrop-filter: blur(2px)}
     #confirmModal .modalBox{transform:scale(.92);opacity:0;transition:transform .18s ease,opacity .18s ease;max-height:85vh;overflow:auto;pointer-events:auto}
     #confirmModal.show .modalBox{transform:scale(1);opacity:1}
-    .modal .modalBox{max-height:85vh;overflow:auto;pointer-events:auto}
+    .modal .modalBox{max-height:calc(100vh - 24px);max-height:calc(100dvh - 24px);overflow:auto;pointer-events:auto}
     .multiPanel{display:grid;gap:10px}
     .lobbyList{display:grid;gap:6px;margin-top:8px}
 
   
     @media (max-width: 980px){
-      body{ overflow:auto; }
+      body{ overflow:hidden; }
       .wrap{ grid-template-columns: 1fr; }
       .ad{ position:relative; top:auto; height:auto; min-height:260px; }
-      .card{ height:auto; }
-      canvas{ height: 70vh !important; }
+      .card{ height:100vh; height:100dvh; }
+      canvas{ height:100% !important; }
+    }
+
+    .topbar,
+    .hud,
+    .gameOverlayUI{
+      transform:scale(var(--uiScale));
+      transform-origin:top left;
     }
 
     .shadowCard{
@@ -574,19 +593,28 @@
 function initGame(){
   const cvs = document.getElementById('c');
   const ctx = cvs.getContext('2d');
-  const DPR = Math.min(2, window.devicePixelRatio || 1);
+  const gameViewport = document.getElementById('gameViewport');
+
+  function applyUIScale(){
+    const base = Math.min(window.innerWidth / 1280, window.innerHeight / 720);
+    const s = Math.max(0.82, Math.min(base, 1));
+    document.documentElement.style.setProperty('--uiScale', String(s));
+  }
 
   // Adaptive canvas scaling (mobile-friendly)
   function resizeCanvas(){
-    const rect = cvs.getBoundingClientRect();
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const rect = (gameViewport || cvs).getBoundingClientRect();
     const w = Math.max(320, Math.floor(rect.width));
     // Match the real on-screen height to avoid stretched graphics
     const h = Math.max(320, Math.floor(rect.height || rect.width));
-    cvs.width = Math.floor(w * DPR);
-    cvs.height = Math.floor(h * DPR);
-    ctx.setTransform(DPR,0,0,DPR,0,0);
+    cvs.width = Math.floor(w * dpr);
+    cvs.height = Math.floor(h * dpr);
+    ctx.setTransform(dpr,0,0,dpr,0,0);
   }
-  addEventListener('resize', resizeCanvas, {passive:true});
+  addEventListener('resize', ()=>{ applyUIScale(); resizeCanvas(); }, {passive:true});
+  addEventListener('orientationchange', ()=>{ applyUIScale(); resizeCanvas(); }, {passive:true});
+  applyUIScale();
   resizeCanvas();
 
   const ui = {
@@ -794,7 +822,6 @@ function initGame(){
   const btnFS = document.getElementById('btnFS');
   const btnRestart = document.getElementById('btnRestart');
   const btnRotate = document.getElementById('btnRotate');
-  const gameViewport = document.getElementById('gameViewport');
   const rotateOverlay = document.getElementById('rotateOverlay');
 
   let forceLandscapeMode = false;
@@ -803,6 +830,7 @@ function initGame(){
   function syncLandscapeGuard(){
     document.body.classList.toggle('portrait-viewport', !isLandscape());
     rotateOverlay?.classList.remove('show');
+    applyUIScale();
     resizeCanvas();
   }
   addEventListener('orientationchange', syncLandscapeGuard, {passive:true});
@@ -1277,7 +1305,7 @@ function initGame(){
     }
 
     if (id==='pillars'){
-      const count = 10;
+      const count = 8;
       const ring = 178;
       for (let i=0;i<count;i++){
         const ang = (Math.PI*2*i)/count;
@@ -1388,7 +1416,7 @@ function closeShop(){
   }
 
   // --- Skill/Weapon unified definitions ---
-  const rarityWeights = {common:60, uncommon:25, rare:10, epic:4, legendary:1, mythic:0.2};
+  const rarityWeights = {common:62, uncommon:23, rare:9, epic:4, legendary:1.2, mythic:0.25};
   const skillDefs = {
     surge:   { id:'surge', name:"Ion Surge", icon:'⚡', type:'skill', category:'tactical', element:'lightning', rarity:'common', tags:['burst','dot'], desc:"Blast + ion burn zone DOT 1.5s.", cooldown:10, radius:115, range:320, col:"#65c7ff" },
     pulse:   { id:'pulse', name:"Gravity Pulse", icon:'🫧', type:'skill', category:'tactical', element:'gravity', rarity:'uncommon', tags:['cc','stun'], desc:"Shockwave knockback mạnh + stun ngắn.", cooldown:12, radius:130, range:330, col:"#ab7aff" },
@@ -1401,6 +1429,32 @@ function closeShop(){
     blades:  { id:'blades', name:"Blade Ring", icon:'🌀', type:'skill', category:'tactical', element:'physical', rarity:'uncommon', tags:['melee','dps'], desc:"Blades orbit 2.0s gây DPS liên tục.", cooldown:10, radius:140, range:300, col:"#ff76e1" },
     pillars: { id:'pillars', name:"Energy Pillars", icon:'🗼', type:'skill', category:'ultimate', element:'arcane', rarity:'legendary', tags:['summon','aoe'], desc:"Triệu hồi vòng trụ năng lượng gây sát thương lớn.", cooldown:20, radius:180, range:340, col:"#4de5c5" },
   };
+
+  function computePowerScore(def){
+    const dmg = def.damage ?? (def.id === 'pillars' ? 260 : def.id === 'meteor' ? 240 : 130);
+    const hits = def.hits ?? (def.tags?.includes('dot') ? 4 : def.tags?.includes('chain') ? 5 : def.tags?.includes('summon') ? 6 : 1);
+    const cooldown = Math.max(0.45, def.cooldown || 10);
+    const dps = (dmg * hits) / cooldown;
+    const aoeScore = Math.max(0, (def.radius || 60) / 18);
+    const ccScore = (def.tags?.includes('slow') ? 10 : 0) + (def.tags?.includes('stun') ? 13 : 0) + (def.tags?.includes('pull') ? 12 : 0) + (def.tags?.includes('cc') ? 6 : 0);
+    const utilityScore = (def.tags?.includes('shield') ? 11 : 0) + (def.tags?.includes('heal') ? 8 : 0) + (def.tags?.includes('summon') ? 12 : 0);
+    const castRiskPenalty = (def.castTime || (def.id === 'meteor' ? 0.6 : 0)) * 14;
+    return dps * 0.72 + aoeScore + ccScore + utilityScore - castRiskPenalty;
+  }
+
+  function rarityFromPowerScore(score){
+    if (score >= 95) return 'mythic';
+    if (score >= 78) return 'legendary';
+    if (score >= 62) return 'epic';
+    if (score >= 45) return 'rare';
+    if (score >= 30) return 'uncommon';
+    return 'common';
+  }
+
+  Object.values(skillDefs).forEach((def)=>{
+    def.powerScore = computePowerScore(def);
+    def.rarity = rarityFromPowerScore(def.powerScore);
+  });
   const weaponCatalog = {
     basic:{id:'basic',name:'Basic',icon:'🔫',type:'weapon',category:'primary',element:'physical',rarity:'common',tags:['auto']},
     flame:{id:'flame',name:'Flame Aura',icon:'🔥',type:'weapon',category:'support',element:'fire',rarity:'uncommon',tags:['aura','dot']},
@@ -1819,7 +1873,11 @@ function closeShop(){
     paused = false;
   });
 
-  bindStartBtn(startMultiplayerBtn, ()=>{ showStartMenu(); paused = true; openMP(); });
+  bindStartBtn(startMultiplayerBtn, ()=>{
+    paused = true;
+    showStartMenu();
+    openMP();
+  });
 
   bindStartBtn(startShopBtn, ()=>{
     hideStartMenu();
@@ -1879,8 +1937,9 @@ function closeShop(){
 
   function updateMPButtons(){
     const isConnecting = !!(net.ws && net.ws.readyState === WebSocket.CONNECTING);
-    if (ui.mpCreate) ui.mpCreate.disabled = isConnecting;
-    if (ui.mpJoin) ui.mpJoin.disabled = isConnecting;
+    const isConnected = !!(net.ws && net.ws.readyState === WebSocket.OPEN);
+    if (ui.mpCreate) ui.mpCreate.disabled = isConnecting || (!isConnected && net.connecting);
+    if (ui.mpJoin) ui.mpJoin.disabled = isConnecting || (!isConnected && net.connecting);
   }
 
   function renderLobby(){
@@ -2051,11 +2110,11 @@ function closeShop(){
   }
 
   function closeMP(){
+    paused = true;
+    showStartMenu();
+    ui.multiplayerModal?.classList.remove('show');
     mpEnabled = false;
     closeMPSocket();
-    ui.multiplayerModal?.classList.remove('show');
-    showStartMenu();
-    paused = true;
     renderLobby();
   }
 
@@ -2083,8 +2142,9 @@ function closeShop(){
     tryStartMPGame();
   });
 
-  ui.multiplayerModal?.addEventListener('pointerdown',(e)=>{ if(e.target===ui.multiplayerModal) closeMP(); });
+  ui.multiplayerModal?.addEventListener('pointerdown',(e)=>{ if(e.target===ui.multiplayerModal) closeMP(); }, {passive:false});
   ui.multiplayerModal?.addEventListener('pointerdown',(e)=>{ e.stopPropagation(); }, {passive:false});
+  ui.multiplayerModal?.querySelector('.modalBox')?.addEventListener('pointerdown',(e)=>{ e.stopPropagation(); }, {passive:false});
   addEventListener('keydown', (e)=>{
     if (mpEnabled && ui.multiplayerModal?.classList.contains('show')){
       e.stopPropagation();
@@ -2449,28 +2509,44 @@ function closeShop(){
     }
   }
 
-  function applyPillarDamage(){
+  function resolveCircleCollision(enemy, pillar){
+    const dx = enemy.x - pillar.x;
+    const dy = enemy.y - pillar.y;
+    const dist = Math.hypot(dx, dy) || 0.0001;
+    const minDist = enemy.r + pillar.r;
+    if (dist >= minDist) return false;
+    const nx = dx / dist;
+    const ny = dy / dist;
+    const push = minDist - dist + 0.6;
+    enemy.x += nx * push;
+    enemy.y += ny * push;
+    enemy.fx = (enemy.fx || 0) + nx * 38;
+    enemy.fy = (enemy.fy || 0) + ny * 38;
+    enemy.forceT = Math.max(enemy.forceT || 0, 0.04);
+    return true;
+  }
+
+  function applyPillarDamage(dt){
     if (!shadowPillars.length || !enemies.length) return;
     rebuildPillarGrid();
     const cell = 96;
     for (let i=enemies.length-1;i>=0;i--){
       const e = enemies[i];
       const cx = Math.floor(e.x / cell), cy = Math.floor(e.y / cell);
-      let hit = false;
-      for (let dx=-1;dx<=1 && !hit;dx++){
-        for (let dy=-1;dy<=1 && !hit;dy++){
+      e.pillarTick = Math.max(0, (e.pillarTick || 0) - dt);
+      for (let dx=-1;dx<=1;dx++){
+        for (let dy=-1;dy<=1;dy++){
           const arr = pillarGrid.get((cx+dx)+','+(cy+dy));
           if (!arr) continue;
           for (let k=0;k<arr.length;k++){
             const p = arr[k];
-            const rr = (p.r + e.r);
-            const ex = e.x - p.x, ey = e.y - p.y;
-            if (ex*ex + ey*ey <= rr*rr){
-              const pdmg = Math.floor((p.dmg||320) * 0.22);
-              applyDamage(e, pdmg, {shock:true});
-              e.stun = Math.max(e.stun||0, 0.12);
-              hit = true;
-              break;
+            if (resolveCircleCollision(e, p)){
+              if (e.pillarTick <= 0){
+                const pdmg = Math.floor((p.dmg||320) * 0.18);
+                applyDamage(e, pdmg, {shock:true});
+                e.slow = Math.max(e.slow||0, 0.45);
+                e.pillarTick = 0.14;
+              }
             }
           }
         }
@@ -3752,7 +3828,7 @@ function closeShop(){
         p.life -= dt; p.t += dt;
         if (p.life<=0) shadowPillars.splice(i,1);
       }
-      applyPillarDamage();
+      applyPillarDamage(dt);
 
       // shadow bullets
       for (let i=shadowBullets.length-1;i>=0;i--){
