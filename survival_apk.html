@@ -7,13 +7,14 @@
   <style>
     :root{
       --uiScale:1;
+      --topbarH:62px;
       --txt:#e8ecff; --mut:#9aa3c7;
       --stroke:#232a45; --accent:#7c5cff;
       --good:#45f7a1; --bad:#ff4d6d; --warn:#ffd166;
     }
     *{box-sizing:border-box}
-    html,body{margin:0;width:100%;height:100%;overflow:hidden;overscroll-behavior:none;touch-action:none}
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:linear-gradient(180deg,#070811,#0b0d12);color:var(--txt);min-height:100vh;min-height:100dvh;overflow:hidden}
+    html,body{margin:0;width:100%;height:100%;height:100svh;height:100dvh;overflow:hidden;overscroll-behavior:none;touch-action:none}
+    body{position:fixed;inset:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:linear-gradient(180deg,#070811,#0b0d12);color:var(--txt);min-height:100svh;min-height:100dvh;overflow:hidden}
     .topbar{
       position:fixed;top:0;left:0;right:0;z-index:5;
       display:flex;align-items:center;justify-content:space-between;
@@ -36,9 +37,9 @@
     }
 
     /* Layout: synced heights (desktop) */
-    .wrap{ min-height:100dvh; padding-top:62px; }
-    .card{ height:calc(100dvh - 62px); display:flex; flex-direction:column; border-radius:0; border:none; }
-    .ad{ height: calc(100vh - 62px - 28px); }
+    .wrap{ min-height:100svh; min-height:100dvh; height:100svh; height:100dvh; padding-top:var(--topbarH); }
+    .card{ height:calc(100dvh - var(--topbarH)); display:flex; flex-direction:column; border-radius:0; border:none; }
+    .ad{ height: calc(100dvh - var(--topbarH) - 28px); }
     .hud{ flex:0 0 auto; }
     canvas{ flex:1 1 auto; height:100% !important; width:100%; }
     .ad{
@@ -73,11 +74,11 @@
     .btn:active{transform:translateY(1px)}
     .modal{
       position:fixed;inset:0;display:none;place-items:center;
-      background:rgba(0,0,0,.92);z-index:9999;padding:12px;pointer-events:none
+      background:#000;z-index:9999;padding:12px;pointer-events:none
     }
     /* Force black backdrop for Shop & Settings */
     #shopModal, #settingsModal, #multiplayerModal{ background:#000 !important; }
-    #multiplayerModal{ background:rgba(0,0,0,.92) !important; }
+    #multiplayerModal.show{ z-index:10000; pointer-events:auto; }
 
     .modal.show{display:grid;pointer-events:auto}
 
@@ -117,6 +118,7 @@
       overflow:auto;
       pointer-events:auto;
     }
+    .btn, .btnMini, .startBtn, input{ min-height:44px; }
     .modalBox h2{margin:0 0 8px;font-size:18px}
     .choices{display:grid;gap:10px;margin-top:10px}
     .choice{
@@ -145,6 +147,7 @@
     .gameViewport{
       position:relative;
       flex:1 1 auto;
+      height:100%;
       min-height:0;
       overflow:hidden;
       touch-action:none;
@@ -262,9 +265,7 @@
       canvas{ height:100% !important; }
     }
 
-    #gameOverlayUI,
-    .hud,
-    .topbar{
+    #gameOverlayUI{
       transform:scale(var(--uiScale));
       transform-origin:top left;
     }
@@ -381,15 +382,15 @@
     body.force-landscape .wrap{
       max-width:none;
       width:100vw;
-      height:100vh;
+      height:100dvh;
       padding:0;
       gap:0;
       grid-template-columns:1fr;
-      min-height:100vh;
+      min-height:100dvh;
     }
     body.force-landscape .card{
       width:100vw;
-      height:100vh;
+      height:100dvh;
       border-radius:0;
       border:none;
     }
@@ -402,7 +403,7 @@
       left:0;
       top:0;
       width:100vw;
-      height:100vh;
+      height:100dvh;
       transform:none;
       transform-origin:center center;
     }
@@ -598,20 +599,26 @@ function initGame(){
   const DESIGN_H = 720;
 
   function applyUIScale(){
-    const base = Math.min(window.innerWidth / DESIGN_W, window.innerHeight / DESIGN_H);
+    const rect = gameViewport?.getBoundingClientRect?.() || { width: window.innerWidth, height: window.innerHeight };
+    const viewportW = Math.max(320, Math.floor(rect.width || window.innerWidth));
+    const viewportH = Math.max(320, Math.floor(rect.height || window.innerHeight));
+    const base = Math.min(viewportW / DESIGN_W, viewportH / DESIGN_H);
     const s = Math.max(0.78, Math.min(base, 1));
     document.documentElement.style.setProperty('--uiScale', String(s));
     if (uiRoot){
       uiRoot.style.transform = `scale(${s})`;
       uiRoot.style.transformOrigin = 'top left';
+      uiRoot.style.width = `${Math.max(1, viewportW / s)}px`;
+      uiRoot.style.height = `${Math.max(1, viewportH / s)}px`;
     }
   }
 
   // Adaptive canvas scaling (mobile-friendly)
   function resizeCanvas(){
     const dpr = Math.min(2, window.devicePixelRatio || 1);
-    const w = Math.max(320, Math.floor(window.innerWidth));
-    const h = Math.max(320, Math.floor(window.innerHeight));
+    const rect = gameViewport?.getBoundingClientRect?.() || { width: window.innerWidth, height: window.innerHeight };
+    const w = Math.max(320, Math.floor(rect.width || window.innerWidth));
+    const h = Math.max(320, Math.floor(rect.height || window.innerHeight));
     cvs.style.width = `${w}px`;
     cvs.style.height = `${h}px`;
     cvs.width = Math.floor(w * dpr);
@@ -620,6 +627,10 @@ function initGame(){
   }
   addEventListener('resize', ()=>{ applyUIScale(); resizeCanvas(); }, {passive:true});
   addEventListener('orientationchange', ()=>{ applyUIScale(); resizeCanvas(); }, {passive:true});
+  if (window.visualViewport){
+    visualViewport.addEventListener('resize', ()=>{ applyUIScale(); resizeCanvas(); }, {passive:true});
+    visualViewport.addEventListener('scroll', ()=>{ applyUIScale(); resizeCanvas(); }, {passive:true});
+  }
   applyUIScale();
   resizeCanvas();
 
@@ -812,7 +823,7 @@ function initGame(){
     if (!gameOver){
       if (k==='e'){ toggleStatus(); return; }
       if (k==='g'){ toggleShadowInv(); return; }
-      if (!paused){
+      if (gameState === 'PLAYING' && !paused){
         const slot = slotByHotkey(normalized);
         if (slot) beginSkillCast(slot);
       }
@@ -1158,7 +1169,7 @@ function initGame(){
             for (let i=0;i<Math.min(3,inRange.length);i++){
               const e = inRange[i];
               applyDamage(e, Math.floor(tickDamage), {shock:true,element:"gravity"});
-              this.arcs.push({x:e.x,y:e.y,jitter:Math.random()*100});
+              this.arcs.push({x:e.x,y:e.y,jitter:rng()*100});
             }
           }
         },
@@ -1441,23 +1452,42 @@ function closeShop(){
   };
 
   function computePowerScore(def){
-    const dmg = def.damage ?? (def.id === 'pillars' ? 260 : def.id === 'meteor' ? 240 : 130);
-    const hits = def.hits ?? (def.tags?.includes('dot') ? 4 : def.tags?.includes('chain') ? 5 : def.tags?.includes('summon') ? 6 : 1);
-    const cooldown = Math.max(0.45, def.cooldown || 10);
-    const dps = (dmg * hits) / cooldown;
-    const aoeScore = Math.max(0, (def.radius || 60) / 18);
-    const ccScore = (def.tags?.includes('slow') ? 10 : 0) + (def.tags?.includes('stun') ? 13 : 0) + (def.tags?.includes('pull') ? 12 : 0) + (def.tags?.includes('cc') ? 6 : 0);
-    const utilityScore = (def.tags?.includes('shield') ? 11 : 0) + (def.tags?.includes('heal') ? 8 : 0) + (def.tags?.includes('summon') ? 12 : 0);
-    const castRiskPenalty = (def.castTime || (def.id === 'meteor' ? 0.6 : 0)) * 14;
-    return dps * 0.72 + aoeScore + ccScore + utilityScore - castRiskPenalty;
+    const profile = {
+      surge:{dmg:210,hits:5,cooldown:10,aoe:115,cc:10,survive:0,utility:4,scaling:1.18},
+      pulse:{dmg:170,hits:2,cooldown:12,aoe:130,cc:34,survive:0,utility:5,scaling:1.2},
+      prism:{dmg:220,hits:5,cooldown:14,aoe:96,cc:10,survive:0,utility:7,scaling:1.15},
+      meteor:{dmg:520,hits:1,cooldown:9,aoe:130,cc:6,survive:0,utility:2,scaling:1.22},
+      frost:{dmg:210,hits:2,cooldown:11,aoe:120,cc:36,survive:0,utility:8,scaling:1.16},
+      chain:{dmg:420,hits:8,cooldown:8,aoe:210,cc:10,survive:0,utility:6,scaling:1.25},
+      vortex:{dmg:320,hits:7,cooldown:13,aoe:220,cc:42,survive:0,utility:8,scaling:1.28},
+      heal:{dmg:0,hits:0,cooldown:16,aoe:118,cc:0,survive:46,utility:16,scaling:1.12},
+      blades:{dmg:320,hits:10,cooldown:10,aoe:140,cc:2,survive:8,utility:4,scaling:1.17},
+      pillars:{dmg:460,hits:14,cooldown:20,aoe:180,cc:44,survive:18,utility:18,scaling:1.35},
+      basic:{dmg:90,hits:1,cooldown:0.45,aoe:30,cc:0,survive:0,utility:2,scaling:1.05},
+      flame:{dmg:160,hits:6,cooldown:1.5,aoe:88,cc:4,survive:0,utility:5,scaling:1.08},
+      freeze:{dmg:120,hits:1,cooldown:0.8,aoe:42,cc:20,survive:0,utility:4,scaling:1.1},
+      boom:{dmg:220,hits:2,cooldown:1.2,aoe:76,cc:6,survive:0,utility:6,scaling:1.14},
+      bomb:{dmg:380,hits:2,cooldown:1.8,aoe:120,cc:8,survive:0,utility:6,scaling:1.2},
+    }[def.id] || {};
+    const damage = profile.dmg ?? def.damage ?? 120;
+    const hits = Math.max(1, profile.hits ?? def.hits ?? 1);
+    const cooldown = Math.max(0.35, profile.cooldown ?? def.cooldown ?? 10);
+    const dps = (damage * hits) / cooldown;
+    const aoeScore = Math.max(0, (profile.aoe ?? def.radius ?? 60) / 5);
+    const ccScore = profile.cc ?? 0;
+    const survivabilityScore = profile.survive ?? 0;
+    const utilityScore = profile.utility ?? 0;
+    const scaling = profile.scaling ?? 1.1;
+    const scalingScore = (scaling - 1) * 120;
+    return dps * 0.14 + aoeScore + ccScore + survivabilityScore + utilityScore + scalingScore;
   }
 
   function rarityFromPowerScore(score){
-    if (score >= 95) return 'mythic';
-    if (score >= 78) return 'legendary';
-    if (score >= 62) return 'epic';
-    if (score >= 45) return 'rare';
-    if (score >= 30) return 'uncommon';
+    if (score >= 165) return 'mythic';
+    if (score >= 130) return 'legendary';
+    if (score >= 102) return 'epic';
+    if (score >= 76) return 'rare';
+    if (score >= 52) return 'uncommon';
     return 'common';
   }
 
@@ -1473,6 +1503,10 @@ function closeShop(){
     boom:{id:'boom',name:'Boomerang',icon:'🌀',type:'weapon',category:'primary',element:'physical',rarity:'rare',tags:['pierce']},
     bomb:{id:'bomb',name:'Bomb AOE',icon:'💣',type:'weapon',category:'support',element:'fire',rarity:'epic',tags:['aoe']},
   };
+  Object.values(weaponCatalog).forEach((def)=>{
+    def.powerScore = computePowerScore(def);
+    def.rarity = rarityFromPowerScore(def.powerScore);
+  });
   const skillLv = Object.fromEntries(Object.keys(skillDefs).map(k=>[k,0]));
   const skillEvolutionChoice = {};
   let pendingEvolutionSkill = null;
@@ -1727,7 +1761,7 @@ function closeShop(){
   function closeShadowInv(){
     ui.shadowModal?.classList.remove('show');
     shadowSel.clear();
-    paused = !!(ui.statusModal?.classList.contains('show') || ui.shopModal?.classList.contains('show') || ui.settingsModal?.classList.contains('show') || ui.modal?.classList.contains('show') || ui.confirmModal?.classList.contains('show'));
+    resumeGameplayIfPossible();
   }
   function toggleShadowInv(){
     if (!canUseShadowInv()) return;
@@ -1860,7 +1894,7 @@ function closeShop(){
 
   // --- Start Menu bindings (works on Web + Android) ---
   let paused = true; // global pause flag (declared early for Start Menu)
-  let gameState = 'MENU';
+  let gameState = 'MENU'; // MENU | PLAYING | PAUSED
   let worldInitialized = false;
   let loopStarted = false;
   const startMenuEl = document.getElementById('startMenu');
@@ -1888,6 +1922,7 @@ function closeShop(){
     hideAllOtherModals();
     mpEnabled = false;
     closeMPSocket();
+    syncOverlayInteractivity();
   }
   function ensureLoopRunning(){
     if (loopStarted) return;
@@ -1898,15 +1933,24 @@ function closeShop(){
   function ensureGameInitialized(){
     if (!worldInitialized || gameOver) reset();
   }
+  function syncOverlayInteractivity(){
+    const modalOpen = isAnyModalOpen();
+    if (uiRoot){
+      const allowPlayInput = gameState === 'PLAYING' && !modalOpen;
+      uiRoot.style.pointerEvents = allowPlayInput ? 'auto' : 'none';
+    }
+  }
   function enterMenu(){
     gameState = 'MENU';
     paused = true;
     showStartMenu();
     hideAllOtherModals();
+    syncOverlayInteractivity();
   }
   function enterPausedUI(){
-    gameState = 'PAUSED_UI';
+    gameState = 'PAUSED';
     paused = true;
+    syncOverlayInteractivity();
   }
   function enterPlaying(){
     gameState = 'PLAYING';
@@ -1915,6 +1959,18 @@ function closeShop(){
     paused = false;
     ensureGameInitialized();
     ensureLoopRunning();
+    syncOverlayInteractivity();
+  }
+
+  function resumeGameplayIfPossible(){
+    if (!gameOver && !isAnyModalOpen()){
+      gameState = 'PLAYING';
+      paused = false;
+    }else{
+      gameState = 'PAUSED';
+      paused = true;
+    }
+    syncOverlayInteractivity();
   }
 
   // Block touches from falling through to the game canvas
@@ -1929,7 +1985,10 @@ function closeShop(){
   };
 
   bindStartBtn(startPlayBtn, ()=>{
-    if (gameOver || !worldInitialized) reset();
+    hideStartMenu();
+    reset();
+    gameState = 'PLAYING';
+    paused = false;
     enterPlaying();
   });
 
@@ -1941,12 +2000,14 @@ function closeShop(){
     enterPausedUI();
     showStartMenu();
     openShop();
+    syncOverlayInteractivity();
   });
 
   bindStartBtn(startSettingsBtn, ()=>{
     enterPausedUI();
     showStartMenu();
     openSettings();
+    syncOverlayInteractivity();
   });
 
   bindStartBtn(startQuitBtn, ()=>{
@@ -1963,13 +2024,7 @@ function closeShop(){
   const MP_SERVER_KEY = 'mp_server_url';
   function defaultMPUrl(){
     const saved = (localStorage.getItem(MP_SERVER_KEY) || '').trim();
-    if (saved) return saved;
-    if ((location.protocol === 'http:' || location.protocol === 'https:') && location.hostname){
-      const wsProto = location.protocol === 'https:' ? 'wss://' : 'ws://';
-      const hasPort = !!location.port;
-      return wsProto + location.hostname + (hasPort ? ':' + location.port : '');
-    }
-    return '';
+    return validateMPUrl(saved) ? saved : '';
   }
 
   const net = {
@@ -1998,8 +2053,10 @@ function closeShop(){
   function updateMPButtons(){
     const isConnecting = !!(net.ws && net.ws.readyState === WebSocket.CONNECTING);
     const isConnected = !!(net.ws && net.ws.readyState === WebSocket.OPEN);
-    if (ui.mpCreate) ui.mpCreate.disabled = isConnecting || (!isConnected && net.connecting);
-    if (ui.mpJoin) ui.mpJoin.disabled = isConnecting || (!isConnected && net.connecting);
+    const hasRoom = !!net.room;
+    if (ui.mpCreate) ui.mpCreate.disabled = !isConnected || isConnecting;
+    if (ui.mpJoin) ui.mpJoin.disabled = !isConnected || isConnecting;
+    if (ui.mpStart) ui.mpStart.disabled = !isConnected || !hasRoom || !net.isHost;
   }
 
   function renderLobby(){
@@ -2043,7 +2100,7 @@ function closeShop(){
       return;
     }
     mpQueue.push(msg);
-    if (mpEnabled) setMPStatus('Đang kết nối...');
+    if (mpEnabled) setMPStatus('Socket chưa mở, đã xếp hàng hành động...');
   }
 
   function validateMPUrl(url){
@@ -2159,12 +2216,18 @@ function closeShop(){
   }
 
   function openMP(){
-    enterPausedUI();
+    gameState = 'MENU';
+    paused = true;
     showStartMenu();
     mpEnabled = true;
     ui.multiplayerModal?.classList.add('show');
-    setMPStatus('Disconnected');
+    net.room = '';
+    net.isHost = false;
+    net.players = [];
+    setMPStatus('Disconnected (chưa kết nối server)');
     renderLobby();
+    if ((ui.mpServerUrl?.value||'').trim()) connectMP();
+    syncOverlayInteractivity();
   }
 
   function closeMP(){
@@ -2173,22 +2236,31 @@ function closeShop(){
     closeMPSocket();
     renderLobby();
     enterMenu();
+    syncOverlayInteractivity();
   }
 
+
+  ui.mpServerUrl?.addEventListener('change', ()=>{ connectMP(); updateMPButtons(); });
+  ui.mpServerUrl?.addEventListener('keydown', (e)=>{ if (e.key === 'Enter'){ e.preventDefault(); connectMP(); updateMPButtons(); } });
   ui.mpClose?.addEventListener('click',closeMP);
   ui.mpCreate?.addEventListener('click',()=>{
     if(!connectMP()) return;
+    if (!net.connected){ setMPStatus('Chưa kết nối server, yêu cầu đã được xếp hàng'); }
     mpSend('CREATE_ROOM');
+    updateMPButtons();
   });
   ui.mpJoin?.addEventListener('click',()=>{
     const room = (ui.mpCode?.value||'').trim().toUpperCase();
     if(!room){ setMPStatus('Nhập mã phòng'); return; }
     if(!connectMP()) return;
+    if (!net.connected){ setMPStatus('Chưa kết nối server, yêu cầu Join đã được xếp hàng'); }
     mpSend('JOIN_ROOM',{room});
+    updateMPButtons();
   });
   ui.mpStart?.addEventListener('click',()=>{
+    if (!net.connected || !net.room){ setMPStatus('Cần Connected và vào phòng trước khi Start'); return; }
     if (!net.isHost) return;
-    const seed=(rng()*1e9)|0;
+    const seed=(rng()*1e9)>>>0;
     const startTime=Date.now();
     const difficulty=enemyScale.hpMul;
     mpState.seed = seed;
@@ -2328,8 +2400,8 @@ function closeShop(){
     const W = cvs.width / DPR, H = cvs.height / DPR;
     let ox=0, oy=0;
     if (shakeT>0){
-      ox = (Math.random()*2-1)*shakePow;
-      oy = (Math.random()*2-1)*shakePow;
+      ox = (rng()*2-1)*shakePow;
+      oy = (rng()*2-1)*shakePow;
     }
     return { sx:(wx-camera.x)+W/2 + ox, sy:(wy-camera.y)+H/2 + oy };
   }
@@ -2450,6 +2522,7 @@ function closeShop(){
 
   function openLevelUp(){
     if (ui.modal.classList.contains('show') || isUiBlockingInput()) return;
+    gameState='PAUSED';
     paused=true;
     levelUpApplied = false;
     levelUpChoiceArmed = false;
@@ -2468,7 +2541,7 @@ function closeShop(){
         row.type='button';
         row.className=`choice rarity-${evDef.rarity||'common'} evoBox`;
         row.innerHTML=`<div class="name"><span>${ch.name}</span><span style="display:flex;gap:6px"><span class="rarityBadge">${evDef.rarity}</span><span class="catBadge">Evolution</span></span></div><div class="desc">${ch.desc}</div>`;
-        row.addEventListener('pointerup',(ev)=>{ev.preventDefault();ev.stopPropagation(); skillEvolutionChoice[pendingEvolutionSkill]=ch.id; pendingEvolutionSkill=null; levelUpApplied=true; levelUpChoiceArmed=false; ui.modal.classList.remove('show'); paused=!!isUiBlockingInput(); updateSkillUI();},{passive:false});
+        row.addEventListener('pointerup',(ev)=>{ev.preventDefault();ev.stopPropagation(); skillEvolutionChoice[pendingEvolutionSkill]=ch.id; pendingEvolutionSkill=null; levelUpApplied=true; levelUpChoiceArmed=false; ui.modal.classList.remove('show'); resumeGameplayIfPossible(); updateSkillUI();},{passive:false});
         ui.choices.appendChild(row);
       });
       ui.modal.classList.add('show');
@@ -2511,7 +2584,7 @@ function closeShop(){
             levelUpChoiceArmed = false;
             beep(880,0.06,"triangle",0.10);
             ui.modal.classList.remove('show');
-            paused = !!isUiBlockingInput();
+            resumeGameplayIfPossible();
             updateSkillUI();
           }, {passive:false});
           secWrap.appendChild(row);
@@ -2573,12 +2646,16 @@ function closeShop(){
     if (dist >= minDist) return false;
     const nx = dx / dist;
     const ny = dy / dist;
-    const push = minDist - dist + 0.6;
+    const bossResist = enemy.isBoss ? 0.5 : 1;
+    const overlap = (minDist - dist + 0.8);
+    const push = overlap * bossResist;
+    enemy.x = pillar.x + nx * (minDist + 0.2);
+    enemy.y = pillar.y + ny * (minDist + 0.2);
+    applyEnemyForce(enemy, nx * (620 * bossResist), ny * (620 * bossResist), 0.2);
+    enemy.stun = Math.max(enemy.stun || 0, enemy.isBoss ? 0.06 : 0.12);
+    enemy.slow = Math.max(enemy.slow || 0, enemy.isBoss ? 0.3 : 0.6);
     enemy.x += nx * push;
     enemy.y += ny * push;
-    enemy.fx = (enemy.fx || 0) + nx * 38;
-    enemy.fy = (enemy.fy || 0) + ny * 38;
-    enemy.forceT = Math.max(enemy.forceT || 0, 0.04);
     return true;
   }
 
@@ -2598,10 +2675,11 @@ function closeShop(){
             const p = arr[k];
             if (resolveCircleCollision(e, p)){
               if (e.pillarTick <= 0){
-                const pdmg = Math.floor((p.dmg||320) * 0.18);
-                applyDamage(e, pdmg, {shock:true});
-                e.slow = Math.max(e.slow||0, 0.45);
-                e.pillarTick = 0.14;
+                const pdmg = Math.floor((p.dmg||320) * 0.20);
+                applyDamage(e, pdmg, {shock:true, element:'arcane'});
+                e.slow = Math.max(e.slow||0, e.isBoss ? 0.3 : 0.62);
+                e.stun = Math.max(e.stun||0, e.isBoss ? 0.05 : 0.1);
+                e.pillarTick = 0.12;
               }
             }
           }
@@ -2758,7 +2836,7 @@ function closeShop(){
         if (d < radius + e.r){
           // apply continuous damage
           e.hp -= dps*dt;
-          if (Math.random()<0.10) spawnHitParticles(e.x,e.y, 1, "rgba(255,190,110,.7)");
+          if (rng()<0.10) spawnHitParticles(e.x,e.y, 1, "rgba(255,190,110,.7)");
           if (e.hp<=0) killEnemy(e);
         }
       }
@@ -3096,7 +3174,7 @@ function closeShop(){
   }
 
   function endGame(){
-    gameOver=true; paused=true;
+    gameOver=true; gameState='PAUSED'; paused=true;
     ui.modal.classList.remove('show');
 
     const score = Math.floor(stats.t*10 + stats.kills*15 + leveling.lv*20);
@@ -3391,7 +3469,7 @@ function closeShop(){
     }
 
 
-    if (!paused){
+    if (gameState === 'PLAYING' && !paused){
       const spm = getShadowPerm();
       stats.t += dt;
       if (DEBUG){
@@ -3982,7 +4060,7 @@ function closeShop(){
     player.spd=260; player.iFrames=0;
 
     stats.t=0; stats.kills=0; stats.score=0;
-    setRNGSeed((Math.random()*0xFFFFFFFF)>>>0);
+    setRNGSeed((Date.now() ^ ((performance.now()*1000)|0) ^ ((rngSeedState*1664525)>>>0))>>>0);
     leveling.lv=1; leveling.xp=0; leveling.need=10;
     pendingLevelUps = 0;
 
